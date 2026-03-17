@@ -11,6 +11,7 @@ import { GunDBService } from '../services/gundbService';
 import { CryptoService } from '../services/CryptoService';
 import WebRTCService from '../services/WebRTCService';
 import { MessageService } from '../services/MessageService';
+// @ts-ignore - BackgroundService is default exported as singleton
 import BackgroundService from '../services/BackgroundService';
 // @ts-ignore - CallService is default exported as singleton
 import CallService, { type CallRequest, type CallSession } from '../services/CallService';

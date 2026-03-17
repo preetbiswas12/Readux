@@ -5,29 +5,44 @@
 
 import React, { useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { useApp } from '../contexts/AppContext';
-import { SplashScreen } from '../screens/SplashScreen';
-import { SignupScreen } from '../screens/SignupScreen';
-import { LoginScreen } from '../screens/LoginScreen';
-import { ChatListScreen } from '../screens/ChatListScreen';
+import { useApp } from './contexts/AppContext';
+import { SplashScreen } from './screens/SplashScreen';
+import { SignupScreen } from './screens/SignupScreen';
+import { LoginScreen } from './screens/LoginScreen';
+import { ChatListScreen } from './screens/ChatListScreen';
+import { SettingsScreen } from './screens/SettingsScreen';
+import { ErrorExportScreen } from './screens/ErrorExportScreen';
 
 type AuthMode = 'signup' | 'login';
+type AppScreen = 'chat-list' | 'settings' | 'diagnostics';
 
 export const App: React.FC = () => {
   const { isInitialized, isLoading, appState } = useApp();
   const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [currentScreen, setCurrentScreen] = useState<AppScreen>('chat-list');
 
   // Loading state
   if (!isInitialized || isLoading) {
     return <SplashScreen />;
   }
 
-  // Logged in - show chat list
+  // Logged in - show current screen
   if (appState.isLoggedIn) {
     return (
       <>
-        <ChatListScreen />
-        <StatusBar barStyle="dark-content" />
+        {currentScreen === 'chat-list' && (
+          <ChatListScreen onOpenSettings={() => setCurrentScreen('settings')} />
+        )}
+        {currentScreen === 'settings' && (
+          <SettingsScreen
+            onBack={() => setCurrentScreen('chat-list')}
+            onOpenDiagnostics={() => setCurrentScreen('diagnostics')}
+          />
+        )}
+        {currentScreen === 'diagnostics' && (
+          <ErrorExportScreen onBack={() => setCurrentScreen('settings')} />
+        )}
+        <StatusBar hidden={false} />
       </>
     );
   }
@@ -37,7 +52,7 @@ export const App: React.FC = () => {
     return (
       <>
         <SignupScreen onSignupComplete={() => setAuthMode('login')} />
-        <StatusBar barStyle="dark-content" />
+        <StatusBar hidden={false} />
       </>
     );
   }
@@ -50,7 +65,7 @@ export const App: React.FC = () => {
         }}
         onSwitchToSignup={() => setAuthMode('signup')}
       />
-      <StatusBar barStyle="dark-content" />
+      <StatusBar hidden={false} />
     </>
   );
 };

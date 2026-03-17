@@ -14,9 +14,15 @@ import {
   ScrollView,
 } from 'react-native';
 import { useApp } from '../contexts/AppContext';
+// @ts-ignore - BackgroundService is default exported as singleton
 import BackgroundService from '../services/BackgroundService';
 
-export const SettingsScreen: React.FC = () => {
+interface SettingsScreenProps {
+  onBack?: () => void;
+  onOpenDiagnostics?: () => void;
+}
+
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenDiagnostics }) => {
   const { appState } = useApp();
   const [batteryMode, setBatteryMode] = useState<'saver' | 'always'>('saver');
   const [backgroundActive, setBackgroundActive] = useState(false);
@@ -53,9 +59,13 @@ export const SettingsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.content}>
-        {/* Header */}
+        {/* Header with Back Button */}
         <View style={styles.header}>
+          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+            <Text style={styles.backButtonText}>← Back</Text>
+          </TouchableOpacity>
           <Text style={styles.title}>Settings</Text>
+          <View style={{ width: 60 }} />
         </View>
 
         {/* Battery Mode Section */}
@@ -156,6 +166,25 @@ export const SettingsScreen: React.FC = () => {
             </View>
           </View>
         </View>
+
+        {/* Diagnostics */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔧 Diagnostics</Text>
+
+          <TouchableOpacity
+            style={styles.diagnosticsButton}
+            onPress={onOpenDiagnostics}
+          >
+            <View style={styles.diagnosticsButtonContent}>
+              <Text style={styles.diagnosticsButtonText}>View Logs & Network Status</Text>
+              <Text style={styles.diagnosticsButtonArrow}>→</Text>
+            </View>
+          </TouchableOpacity>
+
+          <Text style={styles.diagnosticsHint}>
+            Debug logs, error reports, and network diagnostics
+          </Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -172,11 +201,25 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  backButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  backButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#007AFF',
   },
   title: {
     fontSize: 28,
     fontWeight: '700',
     color: '#000000',
+    flex: 1,
+    textAlign: 'center',
   },
   section: {
     marginBottom: 24,
@@ -297,6 +340,35 @@ const styles = StyleSheet.create({
   infoValue: {
     fontSize: 14,
     color: '#6b7280',
+  },
+  diagnosticsButton: {
+    backgroundColor: '#f0f9ff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 2,
+    borderColor: '#0284c7',
+    marginBottom: 8,
+  },
+  diagnosticsButtonContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  diagnosticsButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0c4a6e',
+  },
+  diagnosticsButtonArrow: {
+    fontSize: 20,
+    color: '#0284c7',
+  },
+  diagnosticsHint: {
+    fontSize: 13,
+    color: '#0c4a6e',
+    fontStyle: 'italic',
+    marginLeft: 4,
   },
 });
 

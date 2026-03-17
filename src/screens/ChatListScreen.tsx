@@ -17,7 +17,11 @@ import { useApp } from '../contexts/AppContext';
 import { GunDBService } from '../services/gundbService';
 import { ChatDetailScreen } from './ChatDetailScreen';
 
-export const ChatListScreen: React.FC = () => {
+interface ChatListScreenProps {
+  onOpenSettings?: () => void;
+}
+
+export const ChatListScreen: React.FC<ChatListScreenProps> = ({ onOpenSettings }) => {
   const { currentUser, appState, setOnline, logout, connectToPeer } = useApp();
   const [conversations, setConversations] = useState<string[]>([]);
   const [searchText, setSearchText] = useState('');
@@ -104,16 +108,27 @@ export const ChatListScreen: React.FC = () => {
           <Text style={styles.greeting}>Aegis Chat</Text>
           <Text style={styles.username}>@{currentUser?.alias}</Text>
         </View>
-        <View style={styles.statusBadge}>
-          <View
-            style={[
-              styles.statusDot,
-              appState.isOnline ? styles.online : styles.offline,
-            ]}
-          />
-          <Text style={styles.statusText}>
-            {appState.isOnline ? 'Online' : 'Offline'}
-          </Text>
+        <View style={styles.headerActions}>
+          {/* Settings Button */}
+          <TouchableOpacity
+            style={styles.settingsButton}
+            onPress={onOpenSettings}
+          >
+            <Text style={styles.settingsButtonText}>⚙️</Text>
+          </TouchableOpacity>
+          
+          {/* Status Badge */}
+          <View style={styles.statusBadge}>
+            <View
+              style={[
+                styles.statusDot,
+                appState.isOnline ? styles.online : styles.offline,
+              ]}
+            />
+            <Text style={styles.statusText}>
+              {appState.isOnline ? 'Online' : 'Offline'}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -218,6 +233,22 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#333',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  settingsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingsButtonText: {
+    fontSize: 18,
   },
   statusBadge: {
     flexDirection: 'row',

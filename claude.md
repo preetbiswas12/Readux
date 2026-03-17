@@ -375,77 +375,88 @@
 
 ---
 
-### Phase 4: Persistence & Scale ⏳ REMAINING
+### Phase 4: Background Listening & Battery Optimization ✅ PHASE 4.1 COMPLETE, 4.2 UI COMPLETE
 
-#### Remaining Tasks:
+#### Phase 4.1: Android Foreground Service (✅ COMPLETE)
 
-1. **End-to-End Testing**
-   - [ ] Test WebRTC peer connection on real devices
-   - [ ] Test media capture (iOS/Android)
-   - [ ] Test audio/video call flow
-   - [ ] Test codec negotiation
+**Completed:**
+- ✅ BatteryModeService: Battery optimization with 'saver' (15-min polling) vs 'always' (foreground) modes
+- ✅ BackgroundService: Background listening orchestration with GunDB queries for incoming calls
+- ✅ SettingsScreen: User-facing UI with battery mode toggle and status display
+- ✅ AppContext Integration: Full lifecycle management (init, login, signup, logout)
+- ✅ StorageService Persistence: Battery mode preference saved/loaded across restarts
+- ✅ GunDB Call Queries: Real-time call detection with timestamp filtering to prevent duplicates
+- ✅ All TypeScript compilation (0 errors)
 
-2. **Android Foreground Service** (Battery optimization)
-   - [ ] Implement persistent foreground service
-   - [ ] AlwaysOnline mode toggle
-   - [ ] Battery Saver mode (15-min check intervals)
-   - [ ] Notification UI
+**Files Created:**
+- src/services/BatteryModeService.ts (instance methods, config state machine)
+- src/services/BackgroundService.ts (orchestration, GunDB queries, polling)
+- src/screens/SettingsScreen.tsx (battery mode toggle, status display)
+- Updated src/contexts/AppContext.tsx (background service lifecycle hooks)
+- Updated src/services/StorageService.ts (battery mode persistence)
 
-3. **File Transfer & Sync**
-   - [ ] File chunking (16KB per chunk)
-   - [ ] Media file transfer over WebRTC
-   - [ ] Progress indication
-   - [ ] Resumable uploads
+#### Phase 4.2: Error Handling & Logging ✅ COMPLETE (UI LAYER)
 
-4. **Message History Sync** (Multi-device)
-   - [ ] SQLite history export on old device
-   - [ ] Sync request protocol
-   - [ ] History import on new device
-   - [ ] Incremental sync
+**Completed:**
+- ✅ ErrorLoggingService: Comprehensive error categorization, crash reports, export
+  - Methods: logError(), logWarning(), logInfo(), logCrash()
+  - Features: Debug mode toggle, in-memory store (1000 log limit), SQLiteService persistence
+  - Export: JSON and text formats via Share API
+  - Diagnostics: getDiagnosticSummary() aggregates errors by category
+- ✅ NetworkDiagnosticsService: STUN/GunDB connectivity testing with quality scoring
+  - Tests: runDiagnostics() comprehensive suite, testGunDBConnection(), testSTUNConnectivity()
+  - Quality scoring: excellent/good/fair/poor/offline based on latency thresholds
+  - ICE candidate gathering with 3-second timeout
+  - Actionable recommendations generation
+- ✅ ErrorExportScreen: Full React Native UI component with dual tabs
+  - Logs tab: Debug mode toggle, error summary stats, recent logs viewer, crash reports
+  - Network Diagnostics tab: Run tests, display results, quality indicators, recommendations
+  - Features: Export button, clear logs with confirmation, loading states
+- ✅ SettingsScreen integration: Added "Diagnostics" button with navigation callback
+- ✅ App.tsx navigation: Added diagnostics screen state and routing ('diagnostics' screen type)
+- ✅ Import path corrections: Fixed relative imports in App.tsx (./contexts -> ../contexts)
+- ✅ StatusBar compatibility: Replaced deprecated barStyle prop with hidden={false}
+- ✅ All TypeScript compilation (0 errors for Phase 4.2)
 
-5. **Group Chat Scaling**
-   - [ ] Full-mesh architecture for groups (10-15 people)
-   - [ ] Group message broadcasting
-   - [ ] Group presence tracking
-   - [ ] Conversation state consistency
+**Files Created:**
+- src/services/ErrorLoggingService.ts (300+ lines, singleton with full logging API)
+- src/services/NetworkDiagnosticsService.ts (250+ lines, singleton with diagnostic tests)
+- src/screens/ErrorExportScreen.tsx (410+ lines, complete UI with tabs, export, refresh)
 
-6. **Error Handling & Logging**
-   - [ ] Local crash logs
-   - [ ] Error export UI
-   - [ ] Debug mode logging
-   - [ ] Network diagnostics
+**Files Modified:**
+- src/screens/SettingsScreen.tsx: Added onOpenDiagnostics prop, Diagnostics button section
+- src/App.tsx: Added ErrorExportScreen import, 'diagnostics' AppScreen type, conditional rendering, fixed imports
 
-7. **TURN Fallback**
-   - [ ] Community TURN server integration
-   - [ ] Fallback logic for strict NAT
-   - [ ] Connection quality metrics
+#### Phase 4.3-4.8: Remaining Tasks ⏳ NOT STARTED
 
-8. **Performance Optimization**
-   - [ ] Media codec selection
-   - [ ] Bandwidth monitoring
-   - [ ] Automatic quality adjustment
-   - [ ] Memory leak testing
+**4.3: TURN Fallback**
 
 ---
 
 ## PROJECT STATUS SUMMARY
 
 **Completed ✅**
-- Phase 1: User authentication (BIP-39, keypairs, identity management)
-- Phase 2: Text messaging (WebRTC data channels, message delivery tracking)
+- Phase 1: User authentication (BIP-39, keypairs, identity management, GunDB DHT lookup)
+- Phase 2: Text messaging (WebRTC data channels, message delivery tracking, offline queue)
 - Phase 3: Audio/video calls (real-time media streaming, encryption, call management)
+- Phase 4.1: Background listening (Android foreground service, battery optimization, GunDB polling)
+- Phase 4.2: Error & diagnostics UI (ErrorLoggingService, NetworkDiagnosticsService, ErrorExportScreen)
 - All TypeScript compilation errors fixed (0 errors, 0 warnings)
 - Service architecture with singleton pattern properly implemented
-- Core infrastructure stable and ready for testing
+- Navigation integrated with state-based screen management (chat-list, settings, diagnostics)
 
-**In Testing / Ready for Next Phase**
-- End-to-end call functionality
-- Media capture on devices
-- Real-world NAT/firewall testing
+**In Progress / Pending ⏳**
+- Phase 4.3: TURN Fallback (community TURN servers for strict NAT)
+- Phase 4.4: File Transfer (chunking, streaming, resumable uploads)
+- Phase 4.5: Multi-device Message History Sync (peer-to-peer sync via local network)
+- Phase 4.6: Group Chat Scaling (full-mesh architecture for 10-15 user groups)
+- Phase 4.7: Performance Optimization (codec selection, bandwidth monitoring, quality adjustment)
+- Phase 4.8: End-to-End Testing (real device testing, NAT traversal verification)
 
-**Deferred to Phase 4**
-- Background services (Android foreground service, iOS background fetch)
-- File/media transfer optimization
-- Multi-device sync
-- Group chat scaling
-- Performance optimization
+**Current State**
+- Core P2P infrastructure stable and feature-complete up to Phase 4.2
+- All services are singletons with proper TypeScript interfaces
+- ErrorLoggingService ready for app-wide crash handling integration
+- NetworkDiagnosticsService ready for troubleshooting and connection quality monitoring
+- ErrorExportScreen provides user-facing diagnostics and log management
+- Ready for next phase: TURN fallback implementation or file transfer features

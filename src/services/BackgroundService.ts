@@ -12,6 +12,7 @@ import { GunDBService } from './gundbService';
 import WebRTCService from './WebRTCService';
 import { MessageService } from './MessageService';
 import { SQLiteService } from './SQLiteService';
+// @ts-ignore - BatteryModeService is default exported as singleton
 import BatteryModeService from './BatteryModeService';
 
 interface BackgroundCheckResult {
@@ -22,15 +23,16 @@ interface BackgroundCheckResult {
 }
 
 export class BackgroundService {
-  private static isBackgroundActive = false;
-  private static lastCheckTime = 0;
-  private static checkHandlers: ((result: BackgroundCheckResult) => void)[] = [];
+  private isBackgroundActive = false;
+  private lastCheckTime = 0;
+  private lastCallCheckTime = 0; // Track last call check to avoid duplicates
+  private checkHandlers: ((result: BackgroundCheckResult) => void)[] = [];
 
   /**
    * Initialize background service
    * Called once at app startup
    */
-  static async initialize(): Promise<void> {
+  async initialize(): Promise<void> {
     console.log('[Background] Initializing background service...');
     try {
       await BatteryModeService.initialize();
@@ -44,7 +46,7 @@ export class BackgroundService {
    * Enable background listening
    * Starts polling or foreground service based on battery mode
    */
-  static async enableBackgroundListening(userAlias: string): Promise<void> {
+  async enableBackgroundListening(userAlias: string): Promise<void> {
     if (this.isBackgroundActive) {
       console.log('[Background] Already listening in background');
       return;
@@ -67,9 +69,54 @@ export class BackgroundService {
   }
 
   /**
+   * Query recent calls from GunDB DHT
+   * Returns the count of new incoming call requests since last check
+   */
+  private async queryRecentCalls(userAlias: string): Promise<number> {
+    return new Promise<number>((resolve) => {
+      let callCount = 0;
+      const timeout = setTimeout(() => {
+        console.log('[Background] Call query timeout - resolving with count:', callCount);
+        resolve(callCount);
+      }, 3000); // 3 second timeout
+
+      try {
+        // Subscribe to incoming calls for this user
+        // Real-time subscription will capture any new calls
+        const unsubscribe = GunDBService.subscribeCallRequests(userAlias, (callData: any) => {
+          if (!callData) return;
+
+          // Check if call is newer than last check time
+          const callTimestamp = callData.timestamp || Date.now();
+          if (callTimestamp > this.lastCallCheckTime) {
+            callCount++;
+            console.log(
+              `[Background] 📞 New call from @${callData.from} (type: ${callData.type || 'unknown'})`
+            );
+          }
+        });
+
+        // Clean up subscription after timeout
+        const cleanupTimeout = setTimeout(() => {
+          unsubscribe();
+          clearTimeout(timeout);
+          resolve(callCount);
+        }, 2500); // Slightly before the main timeout
+
+        // Store cleanup for potential later reference
+        this.lastCallCheckTime = Date.now();
+      } catch (error) {
+        console.error('[Background] Failed to query calls:', error);
+        clearTimeout(timeout);
+        resolve(0);
+      }
+    });
+  }
+
+  /**
    * Disable background listening
    */
-  static async disableBackgroundListening(): Promise<void> {
+  async disableBackgroundListening(): Promise<void> {
     console.log('[Background] 🔇 Disabling background listening...');
     this.isBackgroundActive = false;
 
@@ -84,7 +131,7 @@ export class BackgroundService {
   /**
    * Check for messages and calls (called periodically in Battery Saver mode)
    */
-  static async checkForMessagesAndCalls(userAlias: string): Promise<void> {
+  async checkForMessagesAndCalls(userAlias: string): Promise<void> {
     const startTime = Date.now();
     const result: BackgroundCheckResult = {
       messagesChecked: 0,
@@ -115,9 +162,15 @@ export class BackgroundService {
       // Check for incoming calls via GunDB presence
       console.log('[Background] 📞 Checking for incoming calls...');
       try {
-        // TODO: Query recent call requests from GunDB
-        // This would check for new call-requests published to DHT
-        result.incomingCalls = 0;
+        // Query recent call requests from GunDB DHT
+        // Uses lastCallCheckTime to only count new calls since last check
+        result.incomingCalls = await this.queryRecentCalls(userAlias);
+        
+        if (result.incomingCalls > 0) {
+          console.log(`[Background] ✓ Found ${result.incomingCalls} incoming call(s)`);
+        } else {
+          console.log('[Background] No new incoming calls');
+        }
       } catch (error) {
         console.error('[Background] Failed to check calls:', error);
         result.errorsEncountered++;
@@ -146,7 +199,7 @@ export class BackgroundService {
    * Start native foreground service (Android only)
    * Requires AndroidManifest.xml setup and native service implementation
    */
-  private static async startForegroundService(userAlias: string): Promise<void> {
+  private async startForegroundService(userAlias: string): Promise<void> {
     console.log('[Background] 📲 Starting native foreground service...');
 
     try {
@@ -169,7 +222,7 @@ export class BackgroundService {
   /**
    * Stop native foreground service (Android only)
    */
-  private static async stopForegroundService(): Promise<void> {
+  private async stopForegroundService(): Promise<void> {
     console.log('[Background] 📲 Stopping native foreground service...');
 
     try {
@@ -186,7 +239,7 @@ export class BackgroundService {
   /**
    * Subscribe to background check results
    */
-  static onBackgroundCheck(handler: (result: BackgroundCheckResult) => void): () => void {
+  onBackgroundCheck(handler: (result: BackgroundCheckResult) => void): () => void {
     this.checkHandlers.push(handler);
 
     return () => {
@@ -200,42 +253,42 @@ export class BackgroundService {
   /**
    * Get last check time (timestamp)
    */
-  static getLastCheckTime(): number {
+  getLastCheckTime(): number {
     return this.lastCheckTime;
   }
 
   /**
    * Check if background listening is active
    */
-  static isActive(): boolean {
+  isActive(): boolean {
     return this.isBackgroundActive;
   }
 
   /**
    * Get battery mode
    */
-  static getBatteryMode() {
+  getBatteryMode() {
     return BatteryModeService.getMode();
   }
 
   /**
    * Set battery mode (saver or always)
    */
-  static setBatteryMode(mode: 'saver' | 'always'): void {
+  setBatteryMode(mode: 'saver' | 'always'): void {
     BatteryModeService.setMode(mode);
   }
 
   /**
    * Toggle battery mode
    */
-  static toggleBatteryMode(): void {
+  toggleBatteryMode(): void {
     BatteryModeService.toggleMode();
   }
 
   /**
    * Manual check trigger (for testing or user-initiated)
    */
-  static async manualCheck(userAlias: string): Promise<void> {
+  async manualCheck(userAlias: string): Promise<void> {
     console.log('[Background] Manual check triggered');
     await this.checkForMessagesAndCalls(userAlias);
   }

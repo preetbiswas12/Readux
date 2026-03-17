@@ -10,6 +10,7 @@ export class StorageService {
   private static readonly SEED_KEY = 'aegis_seed_phrase';
   private static readonly USER_KEY = 'aegis_user';
   private static readonly PRIVATE_KEY_KEY = 'aegis_private_key';
+  private static readonly BATTERY_MODE_KEY = 'aegis_battery_mode';
 
   /**
    * Save user's BIP-39 seed phrase securely
@@ -126,6 +127,32 @@ export class StorageService {
       console.log('⚠️  Seed phrase deleted permanently');
     } catch (error) {
       console.error('Delete seed failed:', error);
+    }
+  }
+
+  /**
+   * Save battery mode preference (saver or always)
+   */
+  static async setBatteryMode(mode: 'saver' | 'always'): Promise<void> {
+    try {
+      await SecureStore.setItemAsync(this.BATTERY_MODE_KEY, mode);
+      console.log(`✓ Battery mode saved: ${mode}`);
+    } catch (error) {
+      console.error('Save battery mode failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get battery mode preference
+   */
+  static async getBatteryMode(): Promise<'saver' | 'always' | null> {
+    try {
+      const mode = await SecureStore.getItemAsync(this.BATTERY_MODE_KEY);
+      return (mode as 'saver' | 'always') || null;
+    } catch (error) {
+      console.error('Get battery mode failed:', error);
+      return null;
     }
   }
 }
