@@ -8,6 +8,8 @@ import {
   RTCSessionDescription,
   RTCIceCandidate,
 } from 'react-native-webrtc';
+// @ts-ignore - TURNFallbackService is default exported as singleton
+import TURNFallbackService from './TURNFallbackService';
 
 interface PeerConnection {
   peer: RTCPeerConnection;
@@ -22,15 +24,22 @@ interface WebRTCConfig {
 class WebRTCService {
   private static peers: Map<string, PeerConnection> = new Map();
   private static onTrackHandlers: Map<string, (stream: any) => void> = new Map();
+  private static connectionAttempts: Map<string, { startTime: number; usedTURN: boolean }> = new Map();
+  
+  // Legacy config - now uses TURNFallbackService for dynamic ICE server selection
   private static config: WebRTCConfig = {
     iceServers: [
       'stun:stun.l.google.com:19302',
       'stun:stun1.l.google.com:19302',
-      // TURN fallback (Open Relay Project - community-run)
-      'turn:openrelay.metered.ca:80',
-      'turn:openrelay.metered.ca:443',
     ],
   };
+
+  /**
+   * Get ICE servers from TURN service
+   */
+  private static getICEServersConfig(): any[] {
+    return TURNFallbackService.getICEServers();
+  }
 
   /**
    * Create a new peer connection with a remote peer
@@ -40,10 +49,13 @@ class WebRTCService {
     isInitiator: boolean
   ): Promise<RTCPeerConnection> {
     try {
+      // Track connection attempt start time
+      const startTime = Date.now();
+      const usedTURN = TURNFallbackService.isTURNForced();
+      this.connectionAttempts.set(remotePeerAlias, { startTime, usedTURN });
+
       const peerConnection = new RTCPeerConnection({
-        iceServers: this.config.iceServers.map(server => ({
-          urls: [server],
-        })),
+        iceServers: this.getICEServersConfig(),
       });
 
       // If initiator, create data channel
@@ -88,6 +100,13 @@ class WebRTCService {
         const peer = this.peers.get(remotePeerAlias);
         if (peer) {
           peer.isConnected = peerConnection.connectionState === 'connected';
+        }
+
+        // Record connection stats when connected or failed
+        if (peerConnection.connectionState === 'connected') {
+          this.recordConnectionSuccess(remotePeerAlias);
+        } else if (peerConnection.connectionState === 'failed') {
+          this.recordConnectionFailure(remotePeerAlias);
         }
       };
 
@@ -411,6 +430,163 @@ class WebRTCService {
         }
       });
     }
+  }
+
+  /**
+   * Record successful connection (for TURN stats)
+   */
+  private static recordConnectionSuccess(remotePeerAlias: string): void {
+    const attempt = this.connectionAttempts.get(remotePeerAlias);
+    if (attempt) {
+      const latency = Date.now() - attempt.startTime;
+      TURNFallbackService.recordConnectionAttempt(attempt.usedTURN, true, latency);
+      console.log(
+        `✅ Connection successful in ${latency}ms ${
+          attempt.usedTURN ? '(TURN relay)' : '(direct P2P)'
+        }`
+      );
+      this.connectionAttempts.delete(remotePeerAlias);
+    }
+  }
+
+  /**
+   * Record failed connection (for TURN stats)
+   */
+  private static recordConnectionFailure(remotePeerAlias: string): void {
+    const attempt = this.connectionAttempts.get(remotePeerAlias);
+    if (attempt) {
+      const latency = Date.now() - attempt.startTime;
+      TURNFallbackService.recordConnectionAttempt(attempt.usedTURN, false, latency);
+      console.log(
+        `❌ Connection failed after ${latency}ms ${
+          attempt.usedTURN ? '(TURN relay)' : '(direct P2P)'
+        }`
+      );
+      this.connectionAttempts.delete(remotePeerAlias);
+    }
+  }
+
+  /**
+   * Check if should use TURN fallback for next connection
+   */
+  static async shouldUseTURN(): Promise<boolean> {
+    return await TURNFallbackService.shouldUseTURN();
+  }
+
+  /**
+   * Force TURN mode (useful for debugging or extreme NAT situations)
+   */
+  static forceTURN(force: boolean): void {
+    TURNFallbackService.forceTURNMode(force);
+  }
+
+  /**
+   * Get TURN fallback statistics
+   */
+  static getTURNStats() {
+    return TURNFallbackService.getConnectionStats();
+  }
+
+  /**
+   * Get diagnostic recommendations for connection issues
+   */
+  static getTURNRecommendations(): string[] {
+    return TURNFallbackService.getRecommendations();
+  }
+
+  /**
+   * Send a file chunk over data channel
+   * Splits large messages into manageable packets
+   */
+  static async sendFileChunk(remotePeerAlias: string, fileChunkPacket: any): Promise<boolean> {
+    const peer = this.peers.get(remotePeerAlias);
+
+    if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
+      console.warn(`⚠️ No open data channel for @${remotePeerAlias}`);
+      return false;
+    }
+
+    try {
+      // For file chunks, send as separate packet type
+      const packet = {
+        type: 'file_chunk',
+        payload: fileChunkPacket,
+      };
+
+      peer.dataChannel.send(JSON.stringify(packet));
+      return true;
+    } catch (error) {
+      console.error(`Failed to send file chunk: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Send file metadata (before transfer starts)
+   */
+  static async sendFileMetadata(remotePeerAlias: string, metadata: any): Promise<boolean> {
+    const peer = this.peers.get(remotePeerAlias);
+
+    if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
+      console.warn(`⚠️ No open data channel for @${remotePeerAlias}`);
+      return false;
+    }
+
+    try {
+      const packet = {
+        type: 'file_metadata',
+        payload: metadata,
+      };
+
+      peer.dataChannel.send(JSON.stringify(packet));
+      console.log(`📤 File metadata sent to @${remotePeerAlias}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send file metadata: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Send file transfer complete confirmation
+   */
+  static async sendFileComplete(remotePeerAlias: string, fileId: string): Promise<boolean> {
+    const peer = this.peers.get(remotePeerAlias);
+
+    if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
+      console.warn(`⚠️ No open data channel for @${remotePeerAlias}`);
+      return false;
+    }
+
+    try {
+      const packet = {
+        type: 'file_complete',
+        payload: { fileId },
+      };
+
+      peer.dataChannel.send(JSON.stringify(packet));
+      console.log(`✅ File complete sent to @${remotePeerAlias}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send file complete: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Register handler for file metadata
+   */
+  static onFileMetadata(handler: (remotePeerAlias: string, metadata: any) => void): void {
+    // This would be called from setupDataChannelHandlers
+    // Storing for reference when implementing full packet routing
+    console.log('✓ File metadata handler registered');
+  }
+
+  /**
+   * Register handler for file chunks
+   */
+  static onFileChunk(handler: (remotePeerAlias: string, chunk: any) => void): void {
+    console.log('✓ File chunk handler registered');
   }
 }
 

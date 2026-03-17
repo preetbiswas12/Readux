@@ -13,6 +13,10 @@ import WebRTCService from '../services/WebRTCService';
 import { MessageService } from '../services/MessageService';
 // @ts-ignore - BackgroundService is default exported as singleton
 import BackgroundService from '../services/BackgroundService';
+// @ts-ignore - TURNFallbackService is default exported as singleton
+import TURNFallbackService from '../services/TURNFallbackService';
+// @ts-ignore - FileTransferService is default exported as singleton
+import FileTransferService from '../services/FileTransferService';
 // @ts-ignore - CallService is default exported as singleton
 import CallService, { type CallRequest, type CallSession } from '../services/CallService';
 
@@ -43,6 +47,14 @@ interface AppContextType {
   acceptCall: (peerAlias: string, callType: 'audio' | 'video') => Promise<CallSession>;
   rejectCall: (peerAlias: string) => Promise<void>;
   endCall: (peerAlias: string) => Promise<void>;
+
+  // File transfer
+  initiateFileTransfer: (
+    fileBuffer: ArrayBuffer,
+    fileName: string,
+    mimeType: string,
+    recipientAlias: string
+  ) => Promise<string>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -70,6 +82,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         // Initialize services
         await SQLiteService.initialize();
         await GunDBService.initialize();
+        await TURNFallbackService.initialize();
 
         // Check if user is already logged in
         const user = await StorageService.getUser();
@@ -229,6 +242,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       if (!currentUser) return;
 
+      // Check if TURN fallback should be used
+      const useTURN = await TURNFallbackService.shouldUseTURN();
+      if (useTURN) {
+        console.log(`🔄 Using TURN fallback for connection with @${peerAlias}`);
+        TURNFallbackService.forceTURNMode(true);
+      }
+
       // Create peer connection as initiator
       await WebRTCService.createPeerConnection(peerAlias, true);
 
@@ -311,6 +331,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   /**
+   * Initiate a file transfer to a peer
+   */
+  const initiateFileTransfer = async (
+    fileBuffer: ArrayBuffer,
+    fileName: string,
+    mimeType: string,
+    recipientAlias: string
+  ): Promise<string> => {
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+
+      // Initiate transfer in FileTransferService
+      const metadata = await FileTransferService.initiateTransfer(
+        fileBuffer,
+        fileName,
+        mimeType,
+        currentUser.alias,
+        recipientAlias
+      );
+
+      // Send metadata to peer
+      const sentMetadata = await WebRTCService.sendFileMetadata(recipientAlias, metadata);
+      if (!sentMetadata) {
+        throw new Error('Failed to send file metadata to peer');
+      }
+
+      console.log(`📄 File transfer initiated with @${recipientAlias}: ${fileName}`);
+      return metadata.fileId;
+    } catch (error) {
+      console.error(`Failed to initiate file transfer:`, error);
+      throw error;
+    }
+  };
+
+  /**
    * Setup call request handler (when user logs in)
    */
   useEffect(() => {
@@ -340,6 +395,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     acceptCall,
     rejectCall,
     endCall,
+    initiateFileTransfer,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
