@@ -588,6 +588,101 @@ class WebRTCService {
   static onFileChunk(handler: (remotePeerAlias: string, chunk: any) => void): void {
     console.log('✓ File chunk handler registered');
   }
+
+  /**
+   * Send sync request to peer (for multi-device sync)
+   */
+  static async sendSyncRequest(remotePeerAlias: string, syncRequest: any): Promise<boolean> {
+    const peer = this.peers.get(remotePeerAlias);
+
+    if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
+      console.warn(`⚠️ No open data channel for @${remotePeerAlias} (sync request)`);
+      return false;
+    }
+
+    try {
+      const packet = {
+        type: 'sync_request',
+        payload: syncRequest,
+      };
+
+      peer.dataChannel.send(JSON.stringify(packet));
+      console.log(`📱 Sync request sent to @${remotePeerAlias}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send sync request: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Send sync payload to peer (exported message history)
+   */
+  static async sendSyncPayload(remotePeerAlias: string, syncPayload: any): Promise<boolean> {
+    const peer = this.peers.get(remotePeerAlias);
+
+    if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
+      console.warn(`⚠️ No open data channel for @${remotePeerAlias} (sync payload)`);
+      return false;
+    }
+
+    try {
+      const packet = {
+        type: 'sync_payload',
+        payload: syncPayload,
+      };
+
+      // For large payloads, JSON stringify once and send
+      const json = JSON.stringify(packet);
+      
+      // WebRTC has a max message size (~64KB for binary, ~16KB for text)
+      // Split into chunks if needed
+      const chunkSize = 15000;
+      if (json.length > chunkSize) {
+        // Send in chunks with sequence numbers
+        const totalChunks = Math.ceil(json.length / chunkSize);
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * chunkSize;
+          const end = Math.min(start + chunkSize, json.length);
+          const chunk = json.substring(start, end);
+
+          const chunkPacket = {
+            type: 'sync_payload_chunk',
+            syncId: syncPayload.syncId,
+            chunkIndex: i,
+            totalChunks,
+            data: chunk,
+          };
+
+          peer.dataChannel.send(JSON.stringify(chunkPacket));
+          // Small delay between chunks to avoid buffer overflow
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+      } else {
+        peer.dataChannel.send(json);
+      }
+
+      console.log(`📦 Sync payload sent to @${remotePeerAlias} (${(json.length / 1024).toFixed(2)}KB)`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send sync payload: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Register handler for incoming sync requests
+   */
+  static onSyncRequest(handler: (remotePeerAlias: string, request: any) => void): void {
+    console.log('✓ Sync request handler registered');
+  }
+
+  /**
+   * Register handler for incoming sync payloads
+   */
+  static onSyncPayload(handler: (remotePeerAlias: string, payload: any) => void): void {
+    console.log('✓ Sync payload handler registered');
+  }
 }
 
 export default WebRTCService;

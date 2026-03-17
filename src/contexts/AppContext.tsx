@@ -19,6 +19,8 @@ import TURNFallbackService from '../services/TURNFallbackService';
 import FileTransferService from '../services/FileTransferService';
 // @ts-ignore - CallService is default exported as singleton
 import CallService, { type CallRequest, type CallSession } from '../services/CallService';
+// @ts-ignore - SyncService is default exported as singleton
+import SyncService from '../services/SyncService';
 
 interface AppContextType {
   appState: AppStateType;
@@ -55,6 +57,11 @@ interface AppContextType {
     mimeType: string,
     recipientAlias: string
   ) => Promise<string>;
+
+  // Multi-device sync
+  initiateSync: (deviceName: string, peerAlias: string) => Promise<string>;
+  getSyncProgress: (syncId: string) => any;
+  getAllSyncs: () => any[];
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -366,8 +373,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   /**
-   * Setup call request handler (when user logs in)
+   * Initiate multi-device synchronization
    */
+  const initiateSync = async (deviceName: string, peerAlias: string): Promise<string> => {
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+
+      // Create sync request
+      const syncRequest = await SyncService.createSyncRequest(
+        currentUser.alias,
+        deviceName,
+        'full'
+      );
+
+      // Connect to peer if not already connected
+      await connectToPeer(peerAlias);
+
+      // Send sync request via WebRTC
+      const sent = await WebRTCService.sendSyncRequest(peerAlias, syncRequest);
+      if (!sent) {
+        throw new Error('Failed to send sync request to peer');
+      }
+
+      console.log(`📱 Sync initiated with @${peerAlias}: ${syncRequest.syncId}`);
+      return syncRequest.syncId;
+    } catch (error) {
+      console.error('Initiate sync failed:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Get sync progress/state
+   */
+  const getSyncProgress = (syncId: string) => {
+    return SyncService.getSyncState(syncId);
+  };
+
+  /**
+   * Get all active syncs
+   */
+  const getAllSyncs = () => {
+    return SyncService.getActiveSyncs();
+  };
   useEffect(() => {
     if (!currentUser) return;
     
@@ -396,6 +444,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     rejectCall,
     endCall,
     initiateFileTransfer,
+    initiateSync,
+    getSyncProgress,
+    getAllSyncs,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

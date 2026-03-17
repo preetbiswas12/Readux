@@ -314,6 +314,102 @@ export class SQLiteService {
   }
 
   /**
+   * Get all messages for a user (sent + received)
+   */
+  static async getAllMessages(userAlias: string): Promise<Message[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.db.getAllAsync<any>(
+        `SELECT * FROM messages WHERE from_alias = ? OR to_alias = ? ORDER BY timestamp DESC`,
+        [userAlias, userAlias]
+      );
+
+      return result.map(row => ({
+        id: row.id,
+        from: row.from_alias,
+        to: row.to_alias,
+        content: row.content,
+        timestamp: row.timestamp,
+        type: 'text',
+        encrypted: true,
+        delivered: row.delivered === 1,
+        read: row.read === 1,
+      }));
+    } catch (error) {
+      console.error('Get all messages failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get messages since a specific timestamp (for incremental sync)
+   */
+  static async getMessagesSince(userAlias: string, timestamp: number): Promise<Message[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.db.getAllAsync<any>(
+        `SELECT * FROM messages WHERE (from_alias = ? OR to_alias = ?) AND timestamp > ? ORDER BY timestamp DESC`,
+        [userAlias, userAlias, timestamp]
+      );
+
+      return result.map(row => ({
+        id: row.id,
+        from: row.from_alias,
+        to: row.to_alias,
+        content: row.content,
+        timestamp: row.timestamp,
+        type: 'text',
+        encrypted: true,
+        delivered: row.delivered === 1,
+        read: row.read === 1,
+      }));
+    } catch (error) {
+      console.error('Get messages since failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all contacts
+   */
+  static async getAllContacts(): Promise<Array<{ alias: string; publicKey: string; timestamp?: number }>> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.db.getAllAsync<any>(
+        `SELECT alias, public_key, last_seen FROM contacts WHERE is_blocked = 0 ORDER BY alias`
+      );
+
+      return result.map(row => ({
+        alias: row.alias,
+        publicKey: row.public_key,
+        timestamp: row.last_seen,
+      }));
+    } catch (error) {
+      console.error('Get all contacts failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Add or update a contact
+   */
+  static async addContact(alias: string, publicKey: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      await this.db.runAsync(
+        `INSERT OR REPLACE INTO contacts (alias, public_key, last_seen) VALUES (?, ?, ?)`,
+        [alias, publicKey, Date.now()]
+      );
+    } catch (error) {
+      console.error('Add contact failed:', error);
+    }
+  }
+
+  /**
    * Close database connection
    */
   static async close(): Promise<void> {
