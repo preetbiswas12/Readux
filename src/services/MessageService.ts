@@ -8,6 +8,8 @@ import type { Message } from '../types';
 import { CryptoService } from './CryptoService';
 import { SQLiteService } from './SQLiteService';
 import WebRTCService from './WebRTCService';
+// @ts-ignore - E2EEncryptionService is default exported as singleton
+import E2EEncryptionService, { type EncryptedMessagePacket } from './E2EEncryptionService';
 
 export enum MessageType {
   TEXT = 'text',
@@ -19,20 +21,25 @@ interface MessagePacket {
   id: string;
   from: string;
   to: string;
-  content?: string; // For text messages
-  encryptedContent?: string;
+  content?: string; // For text messages (deprecated: use encrypted packets)
+  encryptedContent?: string; // Deprecated
+  ciphertext?: string; // E2EE ciphertext (new)
+  nonce?: string;
+  header?: string; // E2EE header (new)
   timestamp: number;
   type: MessageType;
-  nonce?: string;
+  counter?: number; // E2EE ratchet counter
+  dhr?: string; // DH ratchet key for PFS
 }
 
 export class MessageService {
   private static messageHandlers: Map<string, (message: Message) => void> = new Map();
   private static ackHandlers: Map<string, () => void> = new Map();
   private static readHandlers: Map<string, () => void> = new Map();
+  private static encryptionSessions: Set<string> = new Set(); // Tracks which peers have encryption initialized
 
   /**
-   * Send a text message to a peer
+   * Send a text message to a peer (E2EE with Double Ratchet)
    * Queues locally if peer is offline
    */
   static async sendMessage(
@@ -44,28 +51,35 @@ export class MessageService {
     const messageId = uuidv4();
 
     try {
-      // Create message packet
+      // Ensure encryption session is initialized
+      if (!this.encryptionSessions.has(toAlias)) {
+        await this.initializeEncryption(fromAlias, toAlias, recipientPublicKey);
+      }
+
+      // Encrypt message using Double Ratchet E2EE
+      const encrypted = await E2EEncryptionService.encryptMessage(
+        toAlias,
+        content
+      );
+
+      // Create full packet with encryption metadata
       const packet: MessagePacket = {
         id: messageId,
         from: fromAlias,
         to: toAlias,
-        content,
-        timestamp: Date.now(),
+        ciphertext: encrypted.ciphertext,
+        nonce: encrypted.nonce,
+        header: encrypted.header,
+        timestamp: encrypted.timestamp,
+        counter: encrypted.counter,
+        dhr: encrypted.dhr,
         type: MessageType.TEXT,
-        nonce: CryptoService.generateNonce(),
       };
-
-      // Encrypt content with recipient's public key (Phase 2: placeholder)
-      // In Phase 3, will use libsignal Double Ratchet
-      packet.encryptedContent = CryptoService.encryptMessage(
-        content,
-        recipientPublicKey
-      );
 
       // Try to send via WebRTC if connected
       const sent = await WebRTCService.sendMessage(toAlias, packet);
 
-      // Always save to local history
+      // Always save to local history (plaintext in local DB for user)
       const message: Message = {
         id: messageId,
         from: fromAlias,
@@ -73,47 +87,124 @@ export class MessageService {
         content,
         timestamp: packet.timestamp,
         type: 'text',
-        encrypted: true,
+        encrypted: true, // Marked as E2EE
         delivered: sent,
         read: false,
       };
 
       await SQLiteService.saveMessage(message);
 
-      // If not sent, queue for later
+      // If not sent via WebRTC, queue for later delivery
       if (!sent) {
         await SQLiteService.addPendingMessage(
           toAlias,
           content,
-          packet.encryptedContent
+          packet.ciphertext || ''
         );
-        console.log(`📌 Message queued (offline): ${messageId}`);
+        console.log(`📌 E2EE Message queued (offline): ${messageId}`);
       } else {
-        console.log(`✓ Message sent: ${messageId}`);
+        console.log(`✓ E2EE Message sent: ${messageId}`);
       }
 
       return messageId;
     } catch (error) {
-      console.error('Send message failed:', error);
+      console.error('Send E2EE message failed:', error);
       throw error;
     }
   }
 
   /**
-   * Handle incoming message packet from peer
+   * Initialize E2EE Double Ratchet session with a peer
+   */
+  private static async initializeEncryption(
+    fromAlias: string,
+    toAlias: string,
+    recipientPublicKey: string
+  ): Promise<void> {
+    try {
+      // Generate ephemeral keypair for this conversation
+      const ephemeralKeypair = CryptoService.generateEphemeralKeypair();
+      
+      // Perform ECDH key exchange
+      const sharedSecretHex = CryptoService.performECDH(
+        ephemeralKeypair.privateKey,
+        recipientPublicKey
+      );
+
+      // Convert hex to Uint8Array for E2EEncryptionService
+      const sharedSecret = new Uint8Array(
+        Buffer.from(sharedSecretHex, 'hex')
+      );
+
+      // Initialize encryption session with shared secret
+      await E2EEncryptionService.initializeSession(
+        toAlias,
+        sharedSecret,
+        true // We are initiator
+      );
+
+      this.encryptionSessions.add(toAlias);
+      console.log(`🔐 E2EE session initialized with @${toAlias}`);
+    } catch (error) {
+      console.error(
+        `Failed to initialize E2EE with @${toAlias}:`,
+        error
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Handle incoming message packet from peer (E2EE decryption)
    */
   static async handleIncomingMessage(packet: MessagePacket): Promise<void> {
     try {
-      // Decrypt content (Phase 2: placeholder)
-      const decryptedContent = CryptoService.decryptMessage(
-        packet.encryptedContent || '',
-        packet.content || ''
-      );
+      let decryptedContent: string;
+
+      // Check if message is E2EE encrypted (new format)
+      if (packet.ciphertext && packet.header) {
+        // Initialize encryption session if needed
+        if (!this.encryptionSessions.has(packet.from)) {
+          // This is first message from this peer - we receive as non-initiator
+          // Key exchange happens via out-of-band (e.g., first WebRTC connection init)
+          // For now, mark session as initialized with first message
+          this.encryptionSessions.add(packet.from);
+        }
+
+        // Decrypt using Double Ratchet
+        try {
+          const encryptedPacket: EncryptedMessagePacket = {
+            id: packet.id,
+            from: packet.from,
+            to: packet.to!,
+            ciphertext: packet.ciphertext,
+            nonce: packet.nonce || '',
+            header: packet.header,
+            timestamp: packet.timestamp,
+            counter: packet.counter || 0,
+            dhr: packet.dhr,
+          };
+
+          decryptedContent = await E2EEncryptionService.decryptMessage(
+            packet.from,
+            encryptedPacket
+          );
+        } catch (error) {
+          console.error(`E2EE decryption failed from @${packet.from}: ${error}`);
+          throw error;
+        }
+      } else {
+        // Fallback to old encryption (basic)
+        decryptedContent = CryptoService.decryptMessage(
+          packet.encryptedContent || '',
+          packet.content || ''
+        );
+      }
 
       const message: Message = {
         id: packet.id,
         from: packet.from,
-        to: packet.to,
+        to: packet.to!,
         content: decryptedContent,
         timestamp: packet.timestamp,
         type: 'text',
@@ -126,7 +217,7 @@ export class MessageService {
       await SQLiteService.saveMessage(message);
 
       // Send ACK packet
-      await this.sendACK(packet.to, packet.from, packet.id);
+      await this.sendACK(packet.to!, packet.from, packet.id);
 
       // Trigger message handler
       const handler = this.messageHandlers.get(packet.from);
@@ -134,9 +225,9 @@ export class MessageService {
         handler(message);
       }
 
-      console.log(`💬 Message received: ${packet.id} from @${packet.from}`);
+      console.log(`💬 E2EE Message received: ${packet.id} from @${packet.from}`);
     } catch (error) {
-      console.error('Handle incoming message failed:', error);
+      console.error('Handle incoming E2EE message failed:', error);
     }
   }
 
@@ -251,6 +342,17 @@ export class MessageService {
       }
     } catch (error) {
       console.error('Flush pending messages failed:', error);
+    }
+  }
+
+  /**
+   * End encryption session with a peer
+   */
+  static endEncryptionSession(peerAlias: string): void {
+    if (this.encryptionSessions.has(peerAlias)) {
+      E2EEncryptionService.endSession(peerAlias);
+      this.encryptionSessions.delete(peerAlias);
+      console.log(`🔐 E2EE session ended with @${peerAlias}`);
     }
   }
 

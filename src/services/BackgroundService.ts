@@ -7,12 +7,9 @@
  * - Background Fetch (iOS)
  */
 
-import type { Message } from '../types';
 import { GunDBService } from './gundbService';
-import WebRTCService from './WebRTCService';
-import { MessageService } from './MessageService';
 import { SQLiteService } from './SQLiteService';
-// @ts-ignore - BatteryModeService is default exported as singleton
+// eslint-disable-next-line
 import BatteryModeService from './BatteryModeService';
 
 interface BackgroundCheckResult {
@@ -75,10 +72,12 @@ export class BackgroundService {
   private async queryRecentCalls(userAlias: string): Promise<number> {
     return new Promise<number>((resolve) => {
       let callCount = 0;
-      const timeout = setTimeout(() => {
+      let mainTimeout: any;
+      // 3 second timeout as safety net
+      setTimeout(() => {
         console.log('[Background] Call query timeout - resolving with count:', callCount);
         resolve(callCount);
-      }, 3000); // 3 second timeout
+      }, 3000);
 
       try {
         // Subscribe to incoming calls for this user
@@ -97,17 +96,21 @@ export class BackgroundService {
         });
 
         // Clean up subscription after timeout
-        const cleanupTimeout = setTimeout(() => {
+        let cleanupTimeout: NodeJS.Timeout;
+        cleanupTimeout = setTimeout(() => {
           unsubscribe();
-          clearTimeout(timeout);
+          clearTimeout(mainTimeout);
           resolve(callCount);
         }, 2500); // Slightly before the main timeout
+
+        // Store main timeout for cleanup
+        mainTimeout = cleanupTimeout;
 
         // Store cleanup for potential later reference
         this.lastCallCheckTime = Date.now();
       } catch (error) {
         console.error('[Background] Failed to query calls:', error);
-        clearTimeout(timeout);
+        clearTimeout(mainTimeout);
         resolve(0);
       }
     });

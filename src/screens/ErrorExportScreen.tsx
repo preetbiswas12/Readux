@@ -63,7 +63,7 @@ export const ErrorExportScreen: React.FC<ErrorExportScreenProps> = ({ onBack }) 
         message: jsonExport,
         title: 'Aegis Chat Error Logs',
       });
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to export logs');
     }
   };
@@ -92,7 +92,7 @@ export const ErrorExportScreen: React.FC<ErrorExportScreenProps> = ({ onBack }) 
     try {
       const result = await NetworkDiagnosticsService.runDiagnostics();
       setDiagnostics(result);
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to run diagnostics');
     } finally {
       setRunning(false);
@@ -111,7 +111,7 @@ export const ErrorExportScreen: React.FC<ErrorExportScreenProps> = ({ onBack }) 
         message: formatted,
         title: 'Network Diagnostics',
       });
-    } catch (error) {
+    } catch {
       Alert.alert('Error', 'Failed to export diagnostics');
     }
   };

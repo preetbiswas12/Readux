@@ -64,8 +64,6 @@ export class TURNFallbackService {
   private forceTURN = false; // Force TURN even if direct P2P is available
   private connectionTestTimeout = 5000; // 5 seconds
 
-  constructor() {}
-
   /**
    * Initialize the TURN fallback service
    */

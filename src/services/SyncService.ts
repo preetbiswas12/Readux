@@ -36,7 +36,7 @@ interface SyncPayload {
   syncId: string;
   type: 'full' | 'incremental';
   messages: Message[];
-  contacts: Array<{ alias: string; publicKey: string; timestamp: number }>;
+  contacts: { alias: string; publicKey: string; timestamp: number }[];
   metadata: {
     startTime: number;
     endTime: number;

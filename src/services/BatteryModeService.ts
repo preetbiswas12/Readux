@@ -38,7 +38,7 @@ export class BatteryModeService {
         this.config.mode = savedMode;
         console.log(`[BatteryMode] ✓ Loaded preference: ${savedMode}`);
       }
-    } catch (error) {
+    } catch {
       console.log('[BatteryMode] No saved preference, using default (saver)');
     }
     this.config.enabled = true;

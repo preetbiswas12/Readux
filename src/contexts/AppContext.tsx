@@ -11,16 +11,23 @@ import { GunDBService } from '../services/gundbService';
 import { CryptoService } from '../services/CryptoService';
 import WebRTCService from '../services/WebRTCService';
 import { MessageService } from '../services/MessageService';
-// @ts-ignore - BackgroundService is default exported as singleton
+// eslint-disable-next-line
 import BackgroundService from '../services/BackgroundService';
-// @ts-ignore - TURNFallbackService is default exported as singleton
+// eslint-disable-next-line
 import TURNFallbackService from '../services/TURNFallbackService';
-// @ts-ignore - FileTransferService is default exported as singleton
+// eslint-disable-next-line
 import FileTransferService from '../services/FileTransferService';
-// @ts-ignore - CallService is default exported as singleton
 import CallService, { type CallRequest, type CallSession } from '../services/CallService';
 // @ts-ignore - SyncService is default exported as singleton
 import SyncService from '../services/SyncService';
+// @ts-ignore - GroupChatService is default exported as singleton
+import GroupChatService from '../services/GroupChatService';
+// @ts-ignore - PerformanceOptimizationService is default exported as singleton
+import PerformanceOptimizationService from '../services/PerformanceOptimizationService';
+// @ts-ignore - E2ETestingService is default exported as singleton
+import E2ETestingService, { type TestReport } from '../services/E2ETestingService';
+// @ts-ignore - E2EEncryptionService is default exported as singleton
+import E2EEncryptionService from '../services/E2EEncryptionService';
 
 interface AppContextType {
   appState: AppStateType;
@@ -62,6 +69,36 @@ interface AppContextType {
   initiateSync: (deviceName: string, peerAlias: string) => Promise<string>;
   getSyncProgress: (syncId: string) => any;
   getAllSyncs: () => any[];
+
+  // Group chat management
+  createGroup: (name: string, members: string[], description?: string) => Promise<any>;
+  sendGroupMessage: (groupId: string, content: string) => Promise<string>;
+  addGroupMember: (groupId: string, memberAlias: string) => Promise<void>;
+  removeGroupMember: (groupId: string, memberAlias: string) => Promise<void>;
+  getGroupMessages: (groupId: string, limit?: number) => Promise<any[]>;
+  getUserGroups: () => Promise<any[]>;
+  getGroupState: (groupId: string) => any;
+
+  // Performance optimization
+  getConnectionMetrics: (peerAlias: string) => any;
+  getQualityRecommendations: (peerAlias: string) => string[];
+  getPerformanceStats: () => any;
+  getBandwidthHistory: (peerAlias: string) => any[];
+  getOptimalCodecs: (peerAlias: string, bandwidth: number) => any;
+
+  // E2E Testing
+  runQuickTest: () => Promise<TestReport>;
+  runFullTestSuite: () => Promise<TestReport>;
+  getCurrentTestReport: () => TestReport | null;
+  clearTestResults: () => void;
+
+  // End-to-End Encryption (E2EE)
+  getEncryptionStatus: (peerAlias: string) => { isActive: boolean; type: 'message' | 'media' | 'none' };
+  getMediaEncryptionStatus: (callSessionId: string) => { isEnabled: boolean; sessionId?: string };
+  initiateEncryption: (peerAlias: string) => Promise<void>;
+  getSessionState: (peerAlias: string) => any;
+  isMessageEncryptionEnabled: (peerAlias: string) => boolean;
+  isMediaEncryptionEnabled: (callSessionId: string) => boolean;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -260,10 +297,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await WebRTCService.createPeerConnection(peerAlias, true);
 
       // Create SDP offer
-      await WebRTCService.createOffer(peerAlias);
+      const offer = await WebRTCService.createOffer(peerAlias);
 
-      // TODO: Send offer through GunDB relay to peer
-      console.log(`🤝 Initiating connection with @${peerAlias}`);
+      // Send offer through GunDB relay to peer
+      const callId = `call-${Date.now()}`;
+      await GunDBService.publishSDPOffer(peerAlias, { type: offer.type || 'offer', sdp: offer.sdp }, callId);
+      console.log(`🤝 SDP Offer sent to @${peerAlias}`);
 
       // Flush pending messages to this peer
       await MessageService.flushPendingMessages(peerAlias);
@@ -416,6 +455,305 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const getAllSyncs = () => {
     return SyncService.getActiveSyncs();
   };
+
+  /**
+   * Create a new group chat
+   */
+  const createGroup = async (
+    name: string,
+    members: string[],
+    description?: string
+  ): Promise<any> => {
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+
+      const group = await GroupChatService.createGroup(
+        name,
+        members,
+        currentUser.alias,
+        description
+      );
+
+      console.log(`👥 Group created: "${name}"`);
+      return group;
+    } catch (error) {
+      console.error('Create group failed:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Send message to a group (full-mesh P2P delivery to all members)
+   */
+  const sendGroupMessage = async (groupId: string, content: string): Promise<string> => {
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+
+      const messageId = await GroupChatService.sendGroupMessage(
+        groupId,
+        currentUser.alias,
+        content
+      );
+
+      // Broadcast to all group members via WebRTC
+      const group = GroupChatService.getGroup(groupId);
+      if (group) {
+        for (const member of group.members) {
+          if (member !== currentUser.alias) {
+            // Ensure peer connection exists
+            try {
+              await connectToPeer(member);
+              await WebRTCService.sendGroupMessage(member, {
+                id: messageId,
+                groupId,
+                from: currentUser.alias,
+                content,
+              });
+            } catch (error) {
+              console.warn(`Failed to send group message to @${member}:`, error);
+            }
+          }
+        }
+      }
+
+      console.log(`💬 Group message sent: ${messageId}`);
+      return messageId;
+    } catch (error) {
+      console.error('Send group message failed:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Add member to group
+   */
+  const addGroupMember = async (groupId: string, memberAlias: string): Promise<void> => {
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+
+      await GroupChatService.addMember(groupId, memberAlias, currentUser.alias);
+      console.log(`✓ Added @${memberAlias} to group`);
+    } catch (error) {
+      console.error('Add group member failed:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Remove member from group
+   */
+  const removeGroupMember = async (groupId: string, memberAlias: string): Promise<void> => {
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+
+      await GroupChatService.removeMember(groupId, memberAlias, currentUser.alias);
+      console.log(`✓ Removed @${memberAlias} from group`);
+    } catch (error) {
+      console.error('Remove group member failed:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Get messages from a group
+   */
+  const getGroupMessages = async (groupId: string, limit: number = 50): Promise<any[]> => {
+    try {
+      return await GroupChatService.getGroupMessages(groupId, limit);
+    } catch (error) {
+      console.error('Get group messages failed:', error);
+      return [];
+    }
+  };
+
+  /**
+   * Get all groups user is a member of
+   */
+  const getUserGroups = async (): Promise<any[]> => {
+    try {
+      if (!currentUser) return [];
+      return await GroupChatService.getUserGroups(currentUser.alias);
+    } catch (error) {
+      console.error('Get user groups failed:', error);
+      return [];
+    }
+  };
+
+  /**
+   * Get group state (members, presence, etc.)
+   */
+  const getGroupState = (groupId: string): any => {
+    return GroupChatService.getGroupState(groupId);
+  };
+
+  /**
+   * Get connection metrics for a peer
+   */
+  const getConnectionMetrics = (peerAlias: string): any => {
+    return PerformanceOptimizationService.getConnectionMetrics(peerAlias);
+  };
+
+  /**
+   * Get quality recommendations for a peer
+   */
+  const getQualityRecommendations = (peerAlias: string): string[] => {
+    return PerformanceOptimizationService.getQualityRecommendations(peerAlias);
+  };
+
+  /**
+   * Get performance statistics
+   */
+  const getPerformanceStats = (): any => {
+    return PerformanceOptimizationService.getPerformanceStats();
+  };
+
+  /**
+   * Get bandwidth history for a peer
+   */
+  const getBandwidthHistory = (peerAlias: string): any[] => {
+    return PerformanceOptimizationService.getBandwidthHistory(peerAlias, 50);
+  };
+
+  /**
+   * Get optimal codecs for a peer based on bandwidth
+   */
+  const getOptimalCodecs = (peerAlias: string, bandwidth: number): any => {
+    return WebRTCService.selectOptimalCodecs(peerAlias, bandwidth);
+  };
+
+  /**
+   * Run quick E2E test suite (3 fast tests)
+   */
+  const runQuickTest = async (): Promise<TestReport> => {
+    try {
+      const report = await E2ETestingService.runQuickTest();
+      console.log(`🧪 Quick test complete: ${report.passed}/${report.totalTests} passed`);
+      return report;
+    } catch (error) {
+      console.error('Quick test failed:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Run full E2E test suite (10 comprehensive tests)
+   */
+  const runFullTestSuite = async (): Promise<TestReport> => {
+    try {
+      const report = await E2ETestingService.runFullTestSuite();
+      console.log(`🧪 Full test suite complete: ${report.passed}/${report.totalTests} passed (${report.successRate.toFixed(1)}%)`);
+      return report;
+    } catch (error) {
+      console.error('Full test suite failed:', error);
+      throw error;
+    }
+  };
+
+  /**
+   * Get current test report
+   */
+  const getCurrentTestReport = (): TestReport | null => {
+    return E2ETestingService.getCurrentReport();
+  };
+
+  /**
+   * Clear test results
+   */
+  const clearTestResults = (): void => {
+    E2ETestingService.clearResults();
+  };
+
+  /**
+   * Get encryption status for a peer (message and media)
+   */
+  const getEncryptionStatus = (peerAlias: string): { isActive: boolean; type: 'message' | 'media' | 'none' } => {
+    try {
+      const session = E2EEncryptionService.getSessionState(peerAlias);
+      if (session) {
+        return { isActive: true, type: 'message' };
+      }
+      return { isActive: false, type: 'none' };
+    } catch (error) {
+      console.warn(`Failed to get encryption status for @${peerAlias}:`, error);
+      return { isActive: false, type: 'none' };
+    }
+  };
+
+  /**
+   * Get media encryption (SRTP) status for a call
+   */
+  const getMediaEncryptionStatus = (callSessionId: string): { isEnabled: boolean; sessionId?: string } => {
+    try {
+      return CallService.getMediaEncryptionStatus(callSessionId);
+    } catch (error) {
+      console.warn(`Failed to get media encryption status for ${callSessionId}:`, error);
+      return { isEnabled: false };
+    }
+  };
+
+  /**
+   * Explicitly initiate E2EE session with a peer
+   */
+  const initiateEncryption = async (peerAlias: string): Promise<void> => {
+    try {
+      if (!currentUser) throw new Error('Not logged in');
+      
+      // Get peer's public key from GunDB
+      const peerInfo = await GunDBService.searchUser(peerAlias);
+      if (!peerInfo || !peerInfo.publicKey) {
+        throw new Error(`Could not find peer @${peerAlias}`);
+      }
+
+      // Initialize E2EE Double Ratchet session
+      await E2EEncryptionService.initializeSession(
+        peerAlias,
+        new Uint8Array(Buffer.from(peerInfo.publicKey, 'hex')),
+        true // We are initiator
+      );
+
+      console.log(`🔐 E2EE session initialized with @${peerAlias}`);
+    } catch (error) {
+      console.error(`Failed to initiate encryption with @${peerAlias}:`, error);
+      throw error;
+    }
+  };
+
+  /**
+   * Get full session state for a peer (for debugging)
+   */
+  const getSessionState = (peerAlias: string): any => {
+    try {
+      return E2EEncryptionService.getSessionState(peerAlias);
+    } catch (error) {
+      console.warn(`Failed to get session state for @${peerAlias}:`, error);
+      return null;
+    }
+  };
+
+  /**
+   * Check if message encryption is enabled for a peer
+   */
+  const isMessageEncryptionEnabled = (peerAlias: string): boolean => {
+    try {
+      const session = E2EEncryptionService.getSessionState(peerAlias);
+      return session !== null;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * Check if media encryption is enabled for a call
+   */
+  const isMediaEncryptionEnabled = (callSessionId: string): boolean => {
+    try {
+      const status = CallService.getMediaEncryptionStatus(callSessionId);
+      return status.isEnabled;
+    } catch {
+      return false;
+    }
+  };
+
   useEffect(() => {
     if (!currentUser) return;
     
@@ -423,6 +761,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     CallService.onCallRequest((request: CallRequest) => {
       console.log(`📱 Incoming call from @${request.from}`);
       setIncomingCallRequest(request);
+    });
+
+    // Subscribe to test completion events (for real-time test progress)
+    E2ETestingService.onTestComplete((result) => {
+      console.log(`🧪 Test ${result.status}: ${result.name} (${result.duration}ms)`);
     });
   }, [currentUser]);
 
@@ -447,6 +790,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     initiateSync,
     getSyncProgress,
     getAllSyncs,
+    createGroup,
+    sendGroupMessage,
+    addGroupMember,
+    removeGroupMember,
+    getGroupMessages,
+    getUserGroups,
+    getGroupState,
+    getConnectionMetrics,
+    getQualityRecommendations,
+    getPerformanceStats,
+    getBandwidthHistory,
+    getOptimalCodecs,
+    runQuickTest,
+    runFullTestSuite,
+    getCurrentTestReport,
+    clearTestResults,
+    getEncryptionStatus,
+    getMediaEncryptionStatus,
+    initiateEncryption,
+    getSessionState,
+    isMessageEncryptionEnabled,
+    isMediaEncryptionEnabled,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;

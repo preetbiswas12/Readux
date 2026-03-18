@@ -8,8 +8,10 @@ import {
   RTCSessionDescription,
   RTCIceCandidate,
 } from 'react-native-webrtc';
-// @ts-ignore - TURNFallbackService is default exported as singleton
+// eslint-disable-next-line
 import TURNFallbackService from './TURNFallbackService';
+import PerformanceOptimizationService from './PerformanceOptimizationService';
+import { GunDBService } from './gundbService';
 
 interface PeerConnection {
   peer: RTCPeerConnection;
@@ -25,6 +27,8 @@ class WebRTCService {
   private static peers: Map<string, PeerConnection> = new Map();
   private static onTrackHandlers: Map<string, (stream: any) => void> = new Map();
   private static connectionAttempts: Map<string, { startTime: number; usedTURN: boolean }> = new Map();
+  private static iceCandidatesQueue: Map<string, any[]> = new Map(); // Queue ICE candidates for batching
+  private static candidatePublishTimers: Map<string, NodeJS.Timeout> = new Map(); // Timers for batch publishing
   
   // Legacy config - now uses TURNFallbackService for dynamic ICE server selection
   private static config: WebRTCConfig = {
@@ -86,8 +90,28 @@ class WebRTCService {
       // Handle ICE candidates
       (peerConnection as any).onicecandidate = (event: any) => {
         if (event.candidate) {
-          console.log(`📡 ICE candidate for ${remotePeerAlias}:`, event.candidate);
-          // TODO: Send to remote peer via GunDB relay
+          console.log(`🧊 ICE candidate for ${remotePeerAlias}:`, event.candidate);
+          
+          // Queue the candidate for batch publishing
+          if (!this.iceCandidatesQueue.has(remotePeerAlias)) {
+            this.iceCandidatesQueue.set(remotePeerAlias, []);
+          }
+          this.iceCandidatesQueue.get(remotePeerAlias)!.push({
+            candidate: event.candidate.candidate,
+            sdpMLineIndex: event.candidate.sdpMLineIndex,
+            sdpMid: event.candidate.sdpMid,
+          });
+          
+          // Batch publish candidates every 500ms or after 10 candidates
+          const candidates = this.iceCandidatesQueue.get(remotePeerAlias)!;
+          if (candidates.length >= 10) {
+            this.publishBatchedCandidates(remotePeerAlias);
+          } else if (!this.candidatePublishTimers.has(remotePeerAlias)) {
+            const timer = setTimeout(() => {
+              this.publishBatchedCandidates(remotePeerAlias);
+            }, 500);
+            this.candidatePublishTimers.set(remotePeerAlias, timer);
+          }
         }
       };
 
@@ -682,6 +706,213 @@ class WebRTCService {
    */
   static onSyncPayload(handler: (remotePeerAlias: string, payload: any) => void): void {
     console.log('✓ Sync payload handler registered');
+  }
+
+  /**
+   * Send group message to a member (for full-mesh P2P delivery)
+   */
+  static async sendGroupMessage(remotePeerAlias: string, groupMessage: any): Promise<boolean> {
+    const peer = this.peers.get(remotePeerAlias);
+
+    if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
+      console.warn(`⚠️ No open data channel for @${remotePeerAlias} (group message)`);
+      return false;
+    }
+
+    try {
+      const packet = {
+        type: 'group_message',
+        payload: groupMessage,
+      };
+
+      peer.dataChannel.send(JSON.stringify(packet));
+      console.log(`💬 Group message sent to @${remotePeerAlias}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send group message: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Send group message read receipt to a member
+   */
+  static async sendGroupMessageRead(
+    remotePeerAlias: string,
+    groupId: string,
+    messageId: string
+  ): Promise<boolean> {
+    const peer = this.peers.get(remotePeerAlias);
+
+    if (!peer || !peer.dataChannel || peer.dataChannel.readyState !== 'open') {
+      console.warn(`⚠️ No open data channel for @${remotePeerAlias} (group read)`);
+      return false;
+    }
+
+    try {
+      const packet = {
+        type: 'group_message_read',
+        payload: { groupId, messageId },
+      };
+
+      peer.dataChannel.send(JSON.stringify(packet));
+      console.log(`✓ Group message read sent for ${messageId}`);
+      return true;
+    } catch (error) {
+      console.error(`Failed to send group message read: ${error}`);
+      return false;
+    }
+  }
+
+  /**
+   * Register handler for incoming group messages
+   */
+  static onGroupMessage(handler: (remotePeerAlias: string, message: any) => void): void {
+    console.log('✓ Group message handler registered');
+  }
+
+  /**
+   * Register handler for group message read receipts
+   */
+  static onGroupMessageRead(handler: (remotePeerAlias: string, data: any) => void): void {
+    console.log('✓ Group message read handler registered');
+  }
+
+  /**
+   * Select optimal codecs based on bandwidth
+   */
+  static selectOptimalCodecs(remotePeerAlias: string, bandwidthBps: number): { audio: string; video: string } {
+    const audioCodec = PerformanceOptimizationService.selectOptimalCodec('audio', bandwidthBps);
+    const videoCodec = PerformanceOptimizationService.selectOptimalCodec('video', bandwidthBps);
+
+    const result = {
+      audio: audioCodec?.name || 'Opus',
+      video: videoCodec?.name || 'H264',
+    };
+
+    console.log(
+      `🎬 Selected codecs for @${remotePeerAlias}: audio=${result.audio}, video=${result.video}`
+    );
+
+    return result;
+  }
+
+  /**
+   * Get recommended quality settings based on bandwidth
+   */
+  static getRecommendedQuality(bandwidthBps: number) {
+    return PerformanceOptimizationService.getRecommendedQualitySettings(bandwidthBps);
+  }
+
+  /**
+   * Monitor bandwidth and adjust quality dynamically
+   */
+  static async monitorBandwidth(remotePeerAlias: string, peer: RTCPeerConnection): Promise<void> {
+    try {
+      // Get RTCStats for bandwidth calculation
+      const stats = await (peer as any).getStats();
+      let uploadBps = 0;
+      let downloadBps = 0;
+
+      stats.forEach((report: any) => {
+        if (report.type === 'inbound-rtp') {
+          // Download: bytes received
+          downloadBps += (report.bytesReceived || 0) * 8; // Convert to bits
+        } else if (report.type === 'outbound-rtp') {
+          // Upload: bytes sent
+          uploadBps += (report.bytesSent || 0) * 8;
+        }
+      });
+
+      // Record bandwidth measurement
+      PerformanceOptimizationService.recordBandwidth(remotePeerAlias, uploadBps, downloadBps);
+
+      // Get recommended quality and log
+      const avgBandwidth = PerformanceOptimizationService.getAverageBandwidth(
+        remotePeerAlias,
+        10000
+      );
+      if (avgBandwidth) {
+        const quality = PerformanceOptimizationService.getRecommendedQualitySettings(avgBandwidth);
+        console.log(
+          `📊 Recommended quality: ${quality.resolution} @ ${quality.framerate}fps, ${quality.bitrate}kbps`
+        );
+      }
+    } catch (error) {
+      console.warn('Bandwidth monitoring failed:', error);
+    }
+  }
+
+  /**
+   * Update connection quality metrics
+   */
+  static updateQualityMetrics(
+    remotePeerAlias: string,
+    latency: number,
+    packetLoss: number,
+    jitter: number
+  ): void {
+    PerformanceOptimizationService.updateConnectionMetrics(remotePeerAlias, {
+      latency,
+      packetLoss,
+      jitter,
+      rttMean: latency,
+    });
+
+    console.log(
+      `📈 Updated quality metrics for @${remotePeerAlias}: latency=${latency}ms, loss=${packetLoss}%, jitter=${jitter}ms`
+    );
+  }
+
+  /**
+   * Get quality recommendations for peer
+   */
+  static getQualityRecommendations(remotePeerAlias: string): string[] {
+    return PerformanceOptimizationService.getQualityRecommendations(remotePeerAlias);
+  }
+
+  /**
+   * Get performance stats across all connections
+   */
+  static getPerformanceStats() {
+    return PerformanceOptimizationService.getPerformanceStats();
+  }
+
+  /**
+   * Get bandwidth history for a peer
+   */
+  static getBandwidthHistory(remotePeerAlias: string, limit?: number) {
+    return PerformanceOptimizationService.getBandwidthHistory(remotePeerAlias, limit);
+  }
+
+  /**
+   * Publish batched ICE candidates to GunDB
+   * Called either when 10 candidates are queued or after 500ms timeout
+   */
+  private static async publishBatchedCandidates(remotePeerAlias: string): Promise<void> {
+    try {
+      // Clear timer if exists
+      const timer = this.candidatePublishTimers.get(remotePeerAlias);
+      if (timer) {
+        clearTimeout(timer);
+        this.candidatePublishTimers.delete(remotePeerAlias);
+      }
+
+      // Get queued candidates
+      const candidates = this.iceCandidatesQueue.get(remotePeerAlias);
+      if (!candidates || candidates.length === 0) {
+        return;
+      }
+
+      // Publish to GunDB
+      await GunDBService.publishICECandidates(remotePeerAlias, candidates);
+      console.log(`✓ Published ${candidates.length} ICE candidates for @${remotePeerAlias}`);
+
+      // Clear the queue
+      this.iceCandidatesQueue.delete(remotePeerAlias);
+    } catch (error) {
+      console.error(`Failed to publish ICE candidates for @${remotePeerAlias}:`, error);
+    }
   }
 }
 

@@ -285,6 +285,19 @@ class KeyExchangeService {
       recvCounter: session.recvCounter,
     };
   }
+
+  /**
+   * Get full session state (for E2EE media encryption key derivation)
+   */
+  getSessionState(peerAlias: string): { rootKey: string; sendCounter: number; recvCounter: number } | null {
+    const session = this.sessions.get(peerAlias);
+    if (!session) return null;
+    return {
+      rootKey: Buffer.from(session.rootKey).toString('hex'),
+      sendCounter: session.sendCounter,
+      recvCounter: session.recvCounter,
+    };
+  }
 }
 
 export default new KeyExchangeService();

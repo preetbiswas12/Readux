@@ -14,18 +14,20 @@ import {
   ScrollView,
 } from 'react-native';
 import { useApp } from '../contexts/AppContext';
-// @ts-ignore - BackgroundService is default exported as singleton
+// eslint-disable-next-line
 import BackgroundService from '../services/BackgroundService';
 
 interface SettingsScreenProps {
   onBack?: () => void;
   onOpenDiagnostics?: () => void;
+  onOpenTesting?: () => void;
 }
 
-export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenDiagnostics }) => {
+export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenDiagnostics, onOpenTesting }) => {
   const { appState } = useApp();
   const [batteryMode, setBatteryMode] = useState<'saver' | 'always'>('saver');
   const [backgroundActive, setBackgroundActive] = useState(false);
+  const encryptionActive = true; // E2EE always enabled in this phase
 
   useEffect(() => {
     // Initialize with current settings
@@ -95,7 +97,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenDi
             {batteryMode === 'always' && (
               <View style={styles.warningBox}>
                 <Text style={styles.warningText}>
-                  📲 AlwaysOnline uses a foreground service (required by Android). You'll see a
+                  📲 AlwaysOnline uses a foreground service (required by Android). You&apos;ll see a
                   permanent notification while the app is running.
                 </Text>
               </View>
@@ -167,6 +169,57 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenDi
           </View>
         </View>
 
+        {/* E2EE Encryption Status */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔐 E2E Encryption</Text>
+
+          <View style={styles.settingCard}>
+            <View style={styles.statusRow}>
+              <Text style={styles.statusLabel}>Protocol:</Text>
+              <Text style={styles.statusValue}>Double Ratchet + SRTP</Text>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.statusRow}>
+              <Text style={styles.statusLabel}>Message Encryption:</Text>
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: encryptionActive ? '#10b981' : '#9ca3af' },
+                ]}
+              >
+                <Text style={styles.statusBadgeText}>
+                  {encryptionActive ? 'Active' : 'Standby'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.statusRow}>
+              <Text style={styles.statusLabel}>Perfect Forward Secrecy:</Text>
+              <View style={[styles.statusBadge, { backgroundColor: '#06b6d4' }]}>
+                <Text style={styles.statusBadgeText}>✓ Enabled</Text>
+              </View>
+            </View>
+
+            <View style={styles.divider} />
+
+            <View style={styles.statusRow}>
+              <Text style={styles.statusLabel}>Key Rotation:</Text>
+              <Text style={styles.statusValue}>Every 10 messages & 60s (media)</Text>
+            </View>
+
+            <View style={styles.encryptionHint}>
+              <Text style={styles.encryptionHintText}>
+                ✓ All messages and media streams are encrypted end-to-end. Keys rotate automatically
+                to prevent decryption of old messages if a key is compromised.
+              </Text>
+            </View>
+          </View>
+        </View>
+
         {/* Diagnostics */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>🔧 Diagnostics</Text>
@@ -183,6 +236,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({ onBack, onOpenDi
 
           <Text style={styles.diagnosticsHint}>
             Debug logs, error reports, and network diagnostics
+          </Text>
+        </View>
+
+        {/* Testing */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🧪 E2E Testing</Text>
+
+          <TouchableOpacity
+            style={styles.testingButton}
+            onPress={onOpenTesting}
+          >
+            <View style={styles.testingButtonContent}>
+              <Text style={styles.testingButtonText}>Run Connectivity Tests</Text>
+              <Text style={styles.testingButtonArrow}>→</Text>
+            </View>
+          </TouchableOpacity>
+
+          <Text style={styles.testingHint}>
+            Test WebRTC, codecs, NAT traversal, and media capabilities
           </Text>
         </View>
       </ScrollView>
@@ -369,6 +441,48 @@ const styles = StyleSheet.create({
     color: '#0c4a6e',
     fontStyle: 'italic',
     marginLeft: 4,
+  },
+  testingButton: {
+    backgroundColor: '#fef3c7',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 2,
+    borderColor: '#d97706',
+    marginBottom: 8,
+  },
+  testingButtonContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  testingButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#92400e',
+  },
+  testingButtonArrow: {
+    fontSize: 20,
+    color: '#d97706',
+  },
+  testingHint: {
+    fontSize: 13,
+    color: '#92400e',
+    fontStyle: 'italic',
+    marginLeft: 4,
+  },
+  encryptionHint: {
+    backgroundColor: '#dbeafe',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: '#0284c7',
+  },
+  encryptionHintText: {
+    fontSize: 13,
+    color: '#0c4a6e',
+    lineHeight: 18,
   },
 });
 

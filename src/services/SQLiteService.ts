@@ -374,7 +374,7 @@ export class SQLiteService {
   /**
    * Get all contacts
    */
-  static async getAllContacts(): Promise<Array<{ alias: string; publicKey: string; timestamp?: number }>> {
+  static async getAllContacts(): Promise<{ alias: string; publicKey: string; timestamp?: number }[]> {
     if (!this.db) throw new Error('Database not initialized');
 
     try {
@@ -406,6 +406,111 @@ export class SQLiteService {
       );
     } catch (error) {
       console.error('Add contact failed:', error);
+    }
+  }
+
+  /**
+   * Create a new group chat
+   */
+  static async createGroupChat(
+    groupId: string,
+    name: string,
+    members: string[],
+    createdBy: string,
+    description?: string
+  ): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const membersJson = JSON.stringify(members);
+      await this.db.runAsync(
+        `INSERT INTO group_chats (id, name, members, created_at, created_by) VALUES (?, ?, ?, ?, ?)`,
+        [groupId, name, membersJson, Date.now(), createdBy]
+      );
+    } catch (error) {
+      console.error('Create group chat failed:', error);
+    }
+  }
+
+  /**
+   * Save a group message
+   */
+  static async saveGroupMessage(
+    messageId: string,
+    groupId: string,
+    fromAlias: string,
+    content: string,
+    encryptedContent?: string
+  ): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      await this.db.runAsync(
+        `INSERT INTO group_messages (id, group_id, from_alias, content, encrypted_content, timestamp, message_type) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [messageId, groupId, fromAlias, content, encryptedContent || '', Date.now(), 'text']
+      );
+    } catch (error) {
+      console.error('Save group message failed:', error);
+    }
+  }
+
+  /**
+   * Get group messages
+   */
+  static async getGroupMessages(groupId: string, limit: number = 50): Promise<any[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.db.getAllAsync<any>(
+        `SELECT * FROM group_messages WHERE group_id = ? ORDER BY timestamp DESC LIMIT ?`,
+        [groupId, limit]
+      );
+
+      return result.reverse(); // Return in chronological order
+    } catch (error) {
+      console.error('Get group messages failed:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Mark group message as read by member
+   */
+  static async markGroupMessageRead(messageId: string, readerAlias: string): Promise<void> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      // Note: This is a simplified implementation
+      // In production, would need a separate read_receipts table
+      console.log(`✓ Marked message ${messageId} as read by @${readerAlias}`);
+    } catch (error) {
+      console.error('Mark group message read failed:', error);
+    }
+  }
+
+  /**
+   * Get all group chats for a user
+   */
+  static async getUserGroups(userAlias: string): Promise<any[]> {
+    if (!this.db) throw new Error('Database not initialized');
+
+    try {
+      const result = await this.db.getAllAsync<any>(
+        `SELECT * FROM group_chats`
+      );
+
+      // Filter groups where user is a member
+      return result.filter(row => {
+        try {
+          const members = JSON.parse(row.members);
+          return members.includes(userAlias);
+        } catch {
+          return false;
+        }
+      });
+    } catch (error) {
+      console.error('Get user groups failed:', error);
+      return [];
     }
   }
 

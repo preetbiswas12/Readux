@@ -232,7 +232,7 @@ export class GunDBService {
    */
   static async respondToCallRequest(
     peerAlias: string,
-    response: {accepted: boolean; timestamp: number}
+    response: {accepted: boolean; timestamp: number; mediaSessionId?: string}
   ): Promise<void> {
     try {
       if (!this.gun) {
@@ -336,6 +336,114 @@ export class GunDBService {
       } catch (error) {
         console.error('Error disconnecting from GunDB:', error);
       }
+    }
+  }
+
+  /**
+   * Publish WebRTC SDP Offer to peer
+   * Initiator sends their offer so responder can create answer
+   */
+  static async publishSDPOffer(
+    peerAlias: string,
+    offer: { type: string; sdp: string },
+    callId: string
+  ): Promise<void> {
+    try {
+      if (!this.gun) {
+        throw new Error('GunDB not initialized');
+      }
+
+      await this.gun.get('sdp-offers').get(`${peerAlias}-${callId}`).put({
+        type: 'offer',
+        sdp: offer.sdp,
+        callId,
+        timestamp: Date.now(),
+      });
+
+      console.log(`✓ SDP Offer published to ${peerAlias}`);
+    } catch (error) {
+      console.error('SDP Offer publish failed:', error);
+    }
+  }
+
+  /**
+   * Fetch WebRTC SDP Offer from peer
+   */
+  static async fetchSDPOffer(peerAlias: string, callId: string): Promise<{ type: string; sdp: string } | null> {
+    try {
+      if (!this.gun) {
+        throw new Error('GunDB not initialized');
+      }
+
+      return new Promise((resolve, reject) => {
+        this.gun
+          .get('sdp-offers')
+          .get(`${peerAlias}-${callId}`)
+          .once((data: any) => {
+            if (data?.sdp) {
+              resolve({ type: data.type||'offer', sdp: data.sdp });
+            } else {
+              resolve(null);
+            }
+          }, reject);
+      });
+    } catch (error) {
+      console.error('SDP Offer fetch failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Publish WebRTC SDP Answer to peer
+   * Responder sends their answer after receiving offer
+   */
+  static async publishSDPAnswer(
+    peerAlias: string,
+    answer: { type: string; sdp: string },
+    callId: string
+  ): Promise<void> {
+    try {
+      if (!this.gun) {
+        throw new Error('GunDB not initialized');
+      }
+
+      await this.gun.get('sdp-answers').get(`${peerAlias}-${callId}`).put({
+        type: 'answer',
+        sdp: answer.sdp,
+        callId,
+        timestamp: Date.now(),
+      });
+
+      console.log(`✓ SDP Answer published to ${peerAlias}`);
+    } catch (error) {
+      console.error('SDP Answer publish failed:', error);
+    }
+  }
+
+  /**
+   * Fetch WebRTC SDP Answer from peer
+   */
+  static async fetchSDPAnswer(peerAlias: string, callId: string): Promise<{ type: string; sdp: string } | null> {
+    try {
+      if (!this.gun) {
+        throw new Error('GunDB not initialized');
+      }
+
+      return new Promise((resolve, reject) => {
+        this.gun
+          .get('sdp-answers')
+          .get(`${peerAlias}-${callId}`)
+          .once((data: any) => {
+            if (data?.sdp) {
+              resolve({ type: data.type || 'answer', sdp: data.sdp });
+            } else {
+              resolve(null);
+            }
+          }, reject);
+      });
+    } catch (error) {
+      console.error('SDP Answer fetch failed:', error);
+      return null;
     }
   }
 }

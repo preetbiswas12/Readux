@@ -3,9 +3,6 @@
  * Tests network connectivity, latency, and connection quality
  */
 
-import { GunDBService } from './gundbService';
-import WebRTCService from './WebRTCService';
-
 export interface NetworkTest {
   name: string;
   status: 'passed' | 'failed' | 'running';
@@ -62,7 +59,7 @@ class NetworkDiagnosticsService {
         result.tests_failed++;
         result.recommendations.push('GunDB connection failed - check internet');
       }
-    } catch (error) {
+    } catch {
       result.tests_failed++;
       result.gun_db_connected = false;
       result.recommendations.push('GunDB test error - network may be offline');
@@ -81,7 +78,7 @@ class NetworkDiagnosticsService {
         result.tests_failed++;
         result.recommendations.push('STUN connectivity failed - NAT traversal may fail');
       }
-    } catch (error) {
+    } catch {
       result.tests_failed++;
       result.recommendations.push('STUN test error - WebRTC may not work');
     }
