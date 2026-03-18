@@ -1,0 +1,100 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+
+      - name: Install Android SDK components
+        run: |
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "platform-tools" "platforms;android-34"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build debug APK
+        run: |
+          cd android
+          ./gradlew :app:assembleDebug
+
+      - name: Build release APK (unsigned)
+        run: |
+          cd android
+          ./gradlew :app:assembleRelease
+
+      - name: Upload debug APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
+      - name: Upload release APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-unsigned
+          path: android/app/build/outputs/apk/release/app-release-unsigned.apk
+          retention-days: 7
+
+      - name: Upload build logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: android/app/build/outputs/
+          retention-days: 3
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ APK build completed successfully!"
+          echo "Debug APK: app-debug.apk"
+          echo "Release APK: app-release-unsigned.apk"
+          echo "Download from artifacts"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ APK build failed!"
+          echo "Check build logs in artifacts"

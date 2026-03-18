@@ -1,0 +1,123 @@
+name: Build & Sign APK for Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: 'Build type'
+        required: true
+        default: 'release'
+        type: choice
+        options:
+          - debug
+          - release
+  push:
+    tags:
+      - 'v*'
+
+env:
+  GRADLE_OPTS: '-Dorg.gradle.jvmargs=-Xmx4096m'
+
+jobs:
+  build-signed:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build unsigned APK
+        run: |
+          cd android
+          ./gradlew :app:assembleRelease
+
+      - name: Sign APK
+        uses: r0adkll/sign-android-release@v1
+        id: sign_app
+        with:
+          releaseDirectory: android/app/build/outputs/apk/release
+          signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+          alias: ${{ secrets.KEY_ALIAS }}
+          keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+        env:
+          BUILD_TOOLS_VERSION: "34.0.0"
+
+      - name: Verify signed APK
+        run: |
+          jarsigner -verify -verbose -certs ${{ steps.sign_app.outputs.signedReleaseFile }}
+
+      - name: Rename signed APK
+        run: |
+          mv ${{ steps.sign_app.outputs.signedReleaseFile }} \
+             AegisChat-v${{ github.ref_name }}-signed.apk
+
+      - name: Upload signed APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: AegisChat-signed-apk
+          path: AegisChat-v${{ github.ref_name }}-signed.apk
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: AegisChat-v${{ github.ref_name }}-signed.apk
+          body: |
+            # AegisChat Release v${{ github.ref_name }}
+            
+            ## Build Information
+            - **Commit**: ${{ github.sha }}
+            - **Build Date**: $(date)
+            - **Signed APK**: AegisChat-v${{ github.ref_name }}-signed.apk
+            
+            ## Installation
+            ```bash
+            adb install AegisChat-v${{ github.ref_name }}-signed.apk
+            ```
+            
+            ## Features
+            - End-to-End Encryption (Double Ratchet)
+            - P2P Messaging
+            - Audio/Video Calling
+            - Biometric Authentication
+            - Background Foreground Service
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload to Firebase
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: firebase-artifacts
+          path: AegisChat-*.apk
+          retention-days: 7
