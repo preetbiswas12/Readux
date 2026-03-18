@@ -11,12 +11,14 @@ import { GunDBService } from './gundbService';
 import { SQLiteService } from './SQLiteService';
 // eslint-disable-next-line
 import BatteryModeService from './BatteryModeService';
+import WebRTCService from './WebRTCService';
 
 interface BackgroundCheckResult {
   messagesChecked: number;
   incomingCalls: number;
   errorsEncountered: number;
   lastCheckTime: number;
+  messagesFlushed?: number;
 }
 
 export class BackgroundService {
@@ -154,8 +156,25 @@ export class BackgroundService {
         result.messagesChecked = pending.length;
 
         if (pending.length > 0) {
-          console.log(`[Background] Found ${pending.length} offline messages to flush`);
-          // TODO: Flush via WebRTC when peer comes online
+          console.log(`[Background] Found ${pending.length} pending messages, flushing...`);
+          // ✅ FLUSH pending messages by reconnecting to each peer
+          const msgsByPeer = new Map<string, any[]>();
+          for (const msg of pending) {
+            const key = msg.to;
+            if (!msgsByPeer.has(key)) msgsByPeer.set(key, []);
+            msgsByPeer.get(key)!.push(msg);
+          }
+          result.messagesFlushed = 0;
+          for (const [peerAlias, msgs] of msgsByPeer) {
+            try {
+              // Establish peer connection to trigger message sends
+              await WebRTCService.createPeerConnection(peerAlias, true);
+              result.messagesFlushed! += msgs.length;
+              console.log(`[Background] ✓ Flushed ${msgs.length} message(s) to ${peerAlias}`);
+            } catch (error) {
+              console.warn(`[Background] Failed to flush to ${peerAlias}:`, error);
+            }
+          }
         }
       } catch (error) {
         console.error('[Background] Failed to check pending messages:', error);

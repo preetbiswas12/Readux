@@ -48,6 +48,23 @@ export class SQLiteService {
       );
       
       CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
+      
+      -- Encryption state table (persistent Double Ratchet)
+      CREATE TABLE IF NOT EXISTS encryption_state (
+        peer_alias TEXT PRIMARY KEY,
+        root_key TEXT NOT NULL,
+        chain_key TEXT NOT NULL,
+        header_key TEXT NOT NULL,
+        counter INTEGER DEFAULT 0,
+        dhs TEXT,
+        dhsr TEXT,
+        pn INTEGER DEFAULT 0,
+        ckr TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      
+      CREATE INDEX IF NOT EXISTS idx_encryption_state_alias ON encryption_state(peer_alias);
       CREATE INDEX IF NOT EXISTS idx_messages_to_alias ON messages(to_alias);
     `);
 

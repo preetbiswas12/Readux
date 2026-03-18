@@ -318,7 +318,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       if (!currentUser) throw new Error('Not logged in');
       
-      const session = await CallService.initiateCall(peerAlias, callType);
+      const session = await CallService.initiateCall(peerAlias, callType, currentUser.alias);
       setCurrentCallPeer(peerAlias);
       
       console.log(`📞 Call initiated with @${peerAlias} (${callType})`);

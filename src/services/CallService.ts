@@ -42,7 +42,8 @@ class CallService {
    */
   async initiateCall(
     peerAlias: string,
-    callType: CallType = 'video'
+    callType: CallType = 'video',
+    fromAlias?: string
   ): Promise<CallSession> {
     const callId = `call_${Date.now()}`;
     const mediaSessionId = `media_${callId}`; // Unique media encryption session
@@ -68,10 +69,10 @@ class CallService {
       // Continue without encryption as fallback
     }
 
-    // Create call request
+    // Create call request with actual caller identity
     const callRequest: CallRequest = {
       id: callId,
-      from: 'currentUser', // TODO: Get from AppContext
+      from: fromAlias || 'currentUser', // ✅ Use actual alias
       to: peerAlias,
       type: callType,
       timestamp: Date.now(),

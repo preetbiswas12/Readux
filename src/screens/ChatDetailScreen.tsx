@@ -14,10 +14,12 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from 'react-native';
 import { useApp } from '../contexts/AppContext';
 import { MessageService } from '../services/MessageService';
 import WebRTCService from '../services/WebRTCService';
+import { GunDBService } from '../services/gundbService';
 import type { Message } from '../types';
 
 interface ChatDetailScreenProps {
@@ -94,11 +96,28 @@ export const ChatDetailScreen: React.FC<ChatDetailScreenProps> = ({ peerAlias, o
 
     setSending(true);
     try {
+      // ✅ Fetch peer's actual public key from GunDB
+      let peerPublicKey: string;
+      try {
+        const peerData = await GunDBService.searchUser(peerAlias);
+        if (!peerData?.publicKey) {
+          Alert.alert('User not found', `Cannot find public key for ${peerAlias}`);
+          setSending(false);
+          return;
+        }
+        peerPublicKey = peerData.publicKey;
+      } catch (error) {
+        console.error('Failed to fetch peer public key:', error);
+        Alert.alert('Connection Error', 'Failed to retrieve encryption key');
+        setSending(false);
+        return;
+      }
+
       const messageId = await MessageService.sendMessage(
         currentUser.alias,
         peerAlias,
         inputText.trim(),
-        'placeholder-public-key' // TODO: Get actual public key from GunDB
+        peerPublicKey // ✅ Real public key
       );
 
       // Clear input
