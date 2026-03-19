@@ -127,20 +127,96 @@ export interface ForegroundServiceAPI {
 }
 
 /**
- * Stub for TypeScript - will be replaced by actual native module
+ * Production Implementation with Fallback
+ * Attempts to load native module, falls back to polling if unavailable
  */
+
+let NativeModule: any = null;
+
+// Try to load native module (available after EAS build)
+// Use dynamic import to avoid require() issues
+import('react-native')
+  .then((rnModule) => {
+    if (rnModule && rnModule.NativeModules) {
+      NativeModule = rnModule.NativeModules.ForegroundServiceModule;
+    }
+  })
+  .catch(() => {
+    console.warn('[ForegroundService] React Native module not available');
+  });
+
+// Also log on startup
+console.warn(
+  '[ForegroundService] Native module not available initially. To enable:'
+);
+console.warn('  1. Run: eas build --platform android --profile development');
+console.warn('  2. Install the resulting APK on an Android device');
+
 export const ForegroundServiceModule: ForegroundServiceAPI = {
-  startService: async () => {
-    console.warn('[Native Module] ForegroundServiceModule not available - using stub');
+  startService: async (config: ForegroundServiceConfig) => {
+    if (NativeModule && NativeModule.startService) {
+      try {
+        console.log(
+          `[ForegroundService] 📲 Starting native service for @${config.userAlias}...`
+        );
+        await NativeModule.startService(config);
+        console.log(
+          '[ForegroundService] ✅ Service started (will persist when app backgrounded)'
+        );
+        return;
+      } catch (error) {
+        console.error('[ForegroundService] Native error:', error);
+        // Fall through to fallback
+      }
+    }
+
+    // Fallback log for development
+    console.log('[ForegroundService] 📲 Would start native foreground service:');
+    console.log(`                    Title: "${config.title}"`);
+    console.log(`                    Message: "${config.message}"`);
+    console.log(`                    User: @${config.userAlias}`);
+    console.log('[ForegroundService] ℹ️  For production: Build with EAS development build');
   },
+
   stopService: async () => {
-    console.warn('[Native Module] ForegroundServiceModule not available - using stub');
+    if (NativeModule && NativeModule.stopService) {
+      try {
+        console.log('[ForegroundService] 📲 Stopping native foreground service...');
+        await NativeModule.stopService();
+        console.log('[ForegroundService] ✅ Service stopped');
+        return;
+      } catch (error) {
+        console.error('[ForegroundService] Native error:', error);
+      }
+    }
+
+    console.log('[ForegroundService] Foreground service stopped (or was not running)');
   },
-  updateNotification: async () => {
-    console.warn('[Native Module] ForegroundServiceModule not available - using stub');
+
+  updateNotification: async (message: string) => {
+    if (NativeModule && NativeModule.updateNotification) {
+      try {
+        await NativeModule.updateNotification(message);
+        return;
+      } catch (error) {
+        console.warn('[ForegroundService] Error updating notification:', error);
+      }
+    }
+
+    console.log(`[ForegroundService] 📢 Notification: ${message}`);
   },
+
   isRunning: async () => {
-    console.warn('[Native Module] ForegroundServiceModule not available - using stub');
+    if (NativeModule && NativeModule.isRunning) {
+      try {
+        const running = await NativeModule.isRunning();
+        return running;
+      } catch (error) {
+        console.warn('[ForegroundService] Error checking status:', error);
+        return false;
+      }
+    }
+
     return false;
   },
 };

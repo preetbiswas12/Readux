@@ -9,7 +9,6 @@
 
 import { GunDBService } from './gundbService';
 import { SQLiteService } from './SQLiteService';
-// eslint-disable-next-line
 import BatteryModeService from './BatteryModeService';
 import WebRTCService from './WebRTCService';
 
