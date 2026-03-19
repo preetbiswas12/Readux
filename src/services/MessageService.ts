@@ -97,9 +97,11 @@ export class MessageService {
       // If not sent via WebRTC, queue for later delivery
       if (!sent) {
         await SQLiteService.addPendingMessage(
+          fromAlias,
           toAlias,
           content,
-          packet.ciphertext || ''
+          packet.ciphertext || '',
+          recipientPublicKey
         );
         console.log(`📌 E2EE Message queued (offline): ${messageId}`);
       } else {

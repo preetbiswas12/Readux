@@ -199,9 +199,11 @@ export class SQLiteService {
    * Add a message to pending queue (offline)
    */
   static async addPendingMessage(
+    fromAlias: string,
     toAlias: string,
     content: string,
-    encryptedContent: string
+    encryptedContent: string,
+    recipientPublicKey: string
   ): Promise<string> {
     if (!this.db) throw new Error('Database not initialized');
 
@@ -209,9 +211,9 @@ export class SQLiteService {
 
     try {
       await this.db.runAsync(
-        `INSERT INTO pending_messages (id, to_alias, content, encrypted_content, created_at)
-         VALUES (?, ?, ?, ?, ?)`,
-        [id, toAlias, content, encryptedContent, Date.now()]
+        `INSERT INTO pending_messages (id, from_alias, to_alias, content, encrypted_content, recipient_public_key, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [id, fromAlias, toAlias, content, encryptedContent, recipientPublicKey, Date.now()]
       );
 
       console.log(`✓ Pending message queued: ${id}`);
@@ -235,9 +237,11 @@ export class SQLiteService {
 
       return (rows as any[]).map(row => ({
         id: row.id,
+        from: row.from_alias,
         to: row.to_alias,
         content: row.content,
         encryptedContent: row.encrypted_content,
+        recipientPublicKey: row.recipient_public_key,
         createdAt: row.created_at,
         retries: row.retries,
       }));

@@ -157,7 +157,7 @@ export class BackgroundService {
 
         if (pending.length > 0) {
           console.log(`[Background] Found ${pending.length} pending messages, flushing...`);
-          // ✅ FLUSH pending messages by reconnecting to each peer
+          // ✅ FLUSH pending messages by re-sending each one
           const msgsByPeer = new Map<string, any[]>();
           for (const msg of pending) {
             const key = msg.to;
@@ -167,12 +167,34 @@ export class BackgroundService {
           result.messagesFlushed = 0;
           for (const [peerAlias, msgs] of msgsByPeer) {
             try {
-              // Establish peer connection to trigger message sends
+              // Establish peer connection first
+              console.log(`[Background] Connecting to @${peerAlias} for message flush...`);
               await WebRTCService.createPeerConnection(peerAlias, true);
-              result.messagesFlushed! += msgs.length;
-              console.log(`[Background] ✓ Flushed ${msgs.length} message(s) to ${peerAlias}`);
+              
+              // Import MessageService for re-sending
+              const { MessageService } = await import('./MessageService');
+              
+              // Re-send each pending message
+              for (const msg of msgs) {
+                try {
+                  await MessageService.sendMessage(
+                    msg.from,
+                    msg.to,
+                    msg.content,
+                    msg.recipientPublicKey
+                  );
+                  // Remove from pending queue after successful send
+                  await SQLiteService.removePendingMessage(msg.id);
+                  result.messagesFlushed! += 1;
+                  console.log(`[Background] ✓ Flushed pending message: ${msg.id}`);
+                } catch (sendError) {
+                  console.warn(`[Background] Failed to flush message ${msg.id}:`, sendError);
+                  // Increment retry count in DB (handled by retry logic)
+                }
+              }
+              console.log(`[Background] ✓ Flushed ${result.messagesFlushed} message(s) to @${peerAlias}`);
             } catch (error) {
-              console.warn(`[Background] Failed to flush to ${peerAlias}:`, error);
+              console.warn(`[Background] Failed to flush to @${peerAlias}:`, error);
             }
           }
         }
