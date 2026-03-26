@@ -37,7 +37,8 @@
         "android.permission.FOREGROUND_SERVICE_MICROPHONE",
         "android.permission.WAKE_LOCK",
         "android.permission.MODIFY_AUDIO_SETTINGS"
-      ]
+      ],
+      "package": "com.aegix.readux"
     },
     "web": {
       "output": "static",
@@ -73,6 +74,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "9f697255-1a40-43c2-8fe5-5334860558fb"
+      }
     }
   }
 }

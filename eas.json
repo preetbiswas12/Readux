@@ -2,39 +2,18 @@
   "build": {
     "production": {
       "android": {
-        "buildType": "apk",
-        "gradleCommand": ":app:assembleRelease",
-        "env": {
-          "GRADLE_JVM_OPTS": "-Xmx4096m"
-        }
-      },
-      "ios": {
-        "buildType": "release"
+        "buildType": "apk"
       }
     },
     "preview": {
       "android": {
         "buildType": "apk"
-      },
-      "ios": {
-        "buildType": "simulator"
       }
     },
     "development": {
       "developmentClient": true,
       "android": {
         "buildType": "apk"
-      },
-      "ios": {
-        "buildType": "simulator"
-      }
-    }
-  },
-  "submit": {
-    "production": {
-      "android": {
-        "serviceAccount": "./path-to-keystore",
-        "track": "production"
       }
     }
   }

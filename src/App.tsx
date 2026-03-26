@@ -1,10 +1,10 @@
 /**
  * Project Aegis - Root App Component
- * Entry point with navigation logic
+ * Entry point with navigation logic (No Expo dependencies)
  */
 
 import React, { useState, useEffect } from 'react';
-import { StatusBar } from 'expo-status-bar';
+import { View, StatusBar } from 'react-native';
 import { useApp } from './contexts/AppContext';
 import { SplashScreen } from './screens/SplashScreen';
 import { SignupScreen } from './screens/SignupScreen';
@@ -91,7 +91,7 @@ export const App: React.FC = () => {
           />
         )}
         
-        <StatusBar hidden={false} />
+        <StatusBar barStyle="dark-content" backgroundColor="#fff" />
       </>
     );
   }
